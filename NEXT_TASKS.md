@@ -201,3 +201,8 @@ Claude 追加：旧 yesterday.test.mjs 仍等 .review-page 画布，v2 看板上
 验收：node --test app/test/yesterday.test.mjs 1/1；verify\run_all.cmd full PASS（架构 17×2、契约 11、行为 17、
 仓储/服务 66/66、浏览器 UI 55/55）。
 注：假 Key 故意取 8 个字符（testkey1），因为 verify 的 security.no_secret 会把 apiKey: '<12 字以上>' 判成明文密钥。
+
+复盘｜Claude｜v2 一轮｜2026-11-21
+用时：派单 06:09 → Codex 三张工单 06:42（约 33 分钟）→ DSH 两张工单 06:53（约 44 分钟）→ 验收上线 07:00。
+用量（HUD）：Codex 99 次调用，输入约 19 万 + 缓存读 987 万（命中 98%），输出约 2.6 万；DSH 141 次调用，输入约 2482 万（缓存命中 0%，旧会话含此前历史），输出约 22 万。
+问题：验收脚本改了三次（cmd 通配符 / 中文路径 / LF）；旧昨日测试的迁移在派单时遗漏；给 DSH 的追加消息多余，多了一轮和两个提交；Codex 因信任设置缺失需要用户逐步确认；Codex 把别人的失败当成阻塞。改进见 AGENTS.md 第 9 节。
