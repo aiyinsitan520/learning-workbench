@@ -1,6 +1,6 @@
 // 每日维护看板（页面 key 'review'）的端到端验收：日期边界、AI 回顾的失败与成功、缓存、PNG 导出。
 // 2026-11-21 v2（T4）：页面从旧的「昨日总结」换成 board.js 的每日维护看板。
-// 原来断言的 .review-page DOM、内嵌画布、以及「在浏览器里手填 DeepSeek Key 直连官方接口」那套都不再成立，已删除；
+// 旧用例断言的 .review-page 画布，以及「在浏览器里手填 DeepSeek Key 直连官方接口」那套都已不成立，已删除；
 // 现在 AI 走 v2 的供应商管理（/api/ai/providers/save）+ 注入的假 fetch，不联网。
 import test from 'node:test';
 import assert from 'node:assert/strict';
