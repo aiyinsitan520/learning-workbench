@@ -1,7 +1,7 @@
-// 「每日维护」的画布导出与本地摘要：日期边界、不泄露正文、PNG 下载。
-// 2026-11-21 v2（T4）：页面 key 'review' 从旧的「昨日总结」换成每日维护看板，
-// 原来断言 .review-page DOM 的用例已不成立；这里改为覆盖仍然存在的行为：
-// review.js 的 localText / paint 纯函数，以及看板的「保存图片」按钮。
+// 每日维护看板（页面 key 'review'）的端到端验收：日期边界、AI 回顾的失败与成功、缓存、PNG 导出。
+// 2026-11-21 v2（T4）：页面从旧的「昨日总结」换成 board.js 的每日维护看板。
+// 原来断言的 .review-page DOM、内嵌画布、以及「在浏览器里手填 DeepSeek Key 直连官方接口」那套都不再成立，已删除；
+// 现在 AI 走 v2 的供应商管理（/api/ai/providers/save）+ 注入的假 fetch，不联网。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -11,18 +11,40 @@ import { start } from '../server.js';
 import { dayRange, localDateOf, shiftDate } from '../lib/time.js';
 import { launch } from './browser.mjs';
 
-test('每日维护：本地摘要口径、日期边界、不含正文、PNG 下载', async (t) => {
-  const tz = 'Asia/Taipei';
-  const app = await start({ dbPath: ':memory:', timeZone: tz });
-  t.after(() => { app.server.closeAllConnections(); return new Promise((resolve) => app.server.close(resolve)); });
-  const wb = app.workbench;
-  const today = localDateOf(wb.now(), tz);
-  const yesterday = shiftDate(today, -1);
-  const range = dayRange(yesterday, tz);
-  const page = await launch({ url: app.url, timeZone: tz });
-  t.after(() => page.close());
+const TZ = 'Asia/Taipei';
+const REPLY = '昨天你整理了采样笔记，专注 25 分钟，计划执行了一半。今天先把没做完的推导补上。';
+// 假 Key 刻意短于 12 字：verify 的 security.no_secret 会把 apiKey: '<12 字以上>' 当成疑似明文密钥。
+const FAKE_KEY = 'testkey1';
 
-  // 昨天：完成两项（其中一项带私人正文）、排一个块、结束一轮专注
+test('每日维护看板：默认昨天、AI 失败提示、生成成功与缓存、保存图片', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'wb-yesterday-'));
+  const aiConfigPath = join(dir, 'ai-providers.json');
+  const calls = [];
+  let failure = 0; // 非 0 时假 fetch 用这个状态码失败，模拟 Key 无效 / 限流
+  const app = await start({
+    dbPath: join(dir, 'yesterday.db'),
+    aiConfigPath,
+    timeZone: TZ,
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), method: options?.method ?? 'GET' });
+      if (failure) return new Response('', { status: failure });
+      return options?.method === 'GET'
+        ? Response.json({ data: [{ id: 'fake-model' }] })
+        : Response.json({ choices: [{ message: { content: REPLY } }] });
+    },
+  });
+  t.after(async () => {
+    app.server.closeAllConnections();
+    await new Promise((resolve) => app.server.close(resolve));
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const wb = app.workbench;
+  const today = localDateOf(wb.now(), TZ);
+  const yesterday = shiftDate(today, -1);
+  const range = dayRange(yesterday, TZ);
+
+  // 昨天：完成两项（其中一项带私人正文）、排一个块、结束一轮专注 —— 看板这一天才不是空白
   for (const [id, title, at] of [['a', '整理采样笔记', range.start], ['b', '今天完成', range.end]]) {
     wb.createTask({ id, title });
     wb.db.prepare('UPDATE tasks SET completed_at=? WHERE id=?').run(at, id);
@@ -30,41 +52,99 @@ test('每日维护：本地摘要口径、日期边界、不含正文、PNG 下�
   wb.saveTaskNote('a', '私人正文', 0);
   wb.saveSchedule({ block: { id: 'slot', taskId: 'a', startsAt: range.start + 900, plannedSeconds: 600 } });
   wb.startFocus({ id: 'f1', taskId: 'a', plannedSeconds: 1500 });
-  wb.db.prepare("UPDATE focus_sessions SET state='finished', elapsed_seconds=1500 WHERE id='f1'").run();
+  // 这一轮要算在昨天：started_at 决定专注归属哪一天（readFocusLog 按它过滤）
+  wb.db.prepare("UPDATE focus_sessions SET state='finished', elapsed_seconds=1500, started_at=? WHERE id='f1'")
+    .run(range.start + 900);
 
-  // localText / paint 是纯函数：口径只认传入的事实，不读全局状态
-  const summary = await page.evaluate(`
-    const { localText } = await import('/js/review.js');
-    const facts = { day: ${JSON.stringify(yesterday)}, completed: ['整理采样笔记', '读完第三章'],
-      focus: [{ title: '整理采样笔记', seconds: 1500 }], sessions: 1, seconds: 1500,
-      scheduled: 1, noteTitle: '', noteBlocks: 0 };
-    const blank = { ...facts, completed: [], focus: [], sessions: 0, seconds: 0, scheduled: 0 };
-    return { yesterday: localText(facts), other: localText(facts, { when: '那一天' }),
-      blankYesterday: localText(blank), blankOther: localText(blank, { when: '那一天' }),
-      plannedOnly: localText({ ...blank, scheduled: 2 }, { when: '那一天' }) };
-  `);
-  assert.match(summary.yesterday, /完成了「整理采样笔记」、「读完第三章」。/);
-  assert.match(summary.yesterday, /专注时间最多的是「整理采样笔记」，累计 25 分钟。/);
-  // when 只影响「没有记录」时的说法；有事实时用同一个口径
-  assert.equal(summary.other, summary.yesterday, '有记录时 when 不改变正文');
-  assert.match(summary.blankYesterday, /昨天没有留下学习记录/);
-  assert.match(summary.blankOther, /那一天没有留下学习记录/);
-  assert.match(summary.plannedOnly, /那一天安排了 2 个时间块/);
+  // v2 的模型接入：先建一个供应商并设为当前，看板的「生成 AI 回顾」才可用
+  const base = app.url.replace(/\/$/, '');
+  const post = (path, body) => fetch(`${base}${path}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  }).then((r) => r.json());
+  const saved = await post('/api/ai/providers/save', {
+    provider: { name: '假模型', protocol: 'openai', baseUrl: 'https://api.example.com/v1', apiKey: FAKE_KEY, model: 'fake-model' },
+  });
+  assert.equal(saved.ok, true);
+  assert.equal(saved.provider.hasKey, true);
 
-  // 看板：默认昨天，日期边界正确，页面里不出现任务正文
-  await page.waitFor('document.querySelector("#tools [data-page=review]")');
-  await page.click('#tools [data-page=review]');
-  await page.waitFor('document.querySelector(".board-page .board-metrics")');
-  const review = await (await fetch(`${app.url.replace(/\/$/, '')}/api/review`)).json();
-  assert.equal(review.digest.day, yesterday, '默认看昨天');
+  const page = await launch({ url: app.url, timeZone: TZ });
+  t.after(() => page.close());
+
+  const openBoard = async () => {
+    await page.waitFor('document.querySelector("#tools [data-page=review]")');
+    await page.click('#tools [data-page=review]');
+    await page.waitFor('document.querySelector(".board-page .board-metrics")');
+  };
+
+  // ---- 日期边界：默认看昨天，today 之后翻不过去
+  await openBoard();
+  assert.match(await page.text('.board-date'), new RegExp(`^${Number(yesterday.slice(5, 7))} 月 ${Number(yesterday.slice(8, 10))} 日 .+ · 昨天$`));
+  const review = await (await fetch(`${base}/api/review`)).json();
+  assert.equal(review.digest.day, yesterday, '默认是昨天');
   assert.equal(review.today, today);
+  assert.equal(review.review, null, '还没生成过 AI 回顾');
   assert.deepEqual(review.digest.completed.map((x) => x.title), ['整理采样笔记']);
   assert.equal(await page.count('.board-metric'), 4);
-  assert.doesNotMatch(await page.evaluate('return document.querySelector(".board-page").textContent;'), /私人正文/);
   assert.equal(await page.evaluate('return document.querySelector(".board-page canvas");'), null,
-    '看板不再内嵌画布：图片按需导出');
+    '看板不再内嵌画布，图片按需导出');
 
-  // 保存图片：沿用 review.js 的排版，760 宽 → 1520 像素的 PNG
+  // ---- 没有回顾时显示本地摘要（review.js 的 localText）+ 生成按钮
+  assert.match(await page.text('.board-ai .board-text'), /完成了「整理采样笔记」/);
+  assert.match(await page.text('.board-ai .board-text'), /专注时间最多的是「整理采样笔记」/);
+  assert.equal(await page.count('[data-board-ai]'), 1);
+  assert.equal(await page.count('.board-error'), 0);
+
+  // ---- AI 生成失败：原样显示错误，按钮恢复可点，不给「去设置模型」（已经设过了）
+  failure = 401;
+  await page.click('[data-board-ai]');
+  await page.waitFor('document.querySelector(".board-ai .board-error")');
+  assert.match(await page.text('.board-ai .board-error'), /API Key 无效/);
+  assert.equal(await page.count('[data-board-goto-ai]'), 0);
+  assert.equal(await page.evaluate('return document.querySelector("[data-board-ai]").disabled;'), false);
+  const failedCalls = calls.length;
+  assert.equal(failedCalls, 1, '失败时只请求一次');
+
+  // ---- AI 生成成功：显示正文 + 模型信息，并落库（缓存）
+  failure = 0;
+  await page.click('[data-board-ai]');
+  await page.waitFor(`document.querySelector('.board-ai .board-text')?.textContent.includes('采样笔记') && !document.querySelector('.board-ai .board-error')`);
+  assert.equal(await page.text('.board-ai .board-text'), REPLY);
+  assert.match(await page.text('.board-ai .board-meta'), /假模型 · fake-model · /);
+  assert.equal(calls.length, failedCalls + 1);
+  assert.equal(calls.at(-1).method, 'POST');
+  const stored = await (await fetch(`${base}/api/review?day=${yesterday}`)).json();
+  assert.equal(stored.review.text, REPLY);
+  assert.equal(stored.review.stale, false);
+  // 提示词只带事实，不带任务正文
+  const prompt = JSON.stringify(await readFile(aiConfigPath, 'utf8'));
+  assert.doesNotMatch(prompt, /私人正文/, '模型配置里不该出现任务正文');
+
+  // ---- 缓存：刷新后直接显示已存的回顾，不再请求模型
+  await page.goto(`${base}/`);
+  await page.waitFor('!!window.__wbState.view');
+  await openBoard();
+  assert.equal(await page.text('.board-ai .board-text'), REPLY);
+  assert.equal(await page.count('[data-board-ai]'), 0, '没有更新时不给「重新生成」');
+  assert.equal(calls.length, failedCalls + 1, '刷新走缓存，不再调用模型');
+
+  // ---- 记录又变了 → 回顾标记 stale，出现「记录有更新」与「重新生成」
+  wb.createTask({ id: 'late', title: '深夜又补了一项' });
+  wb.db.prepare('UPDATE tasks SET completed_at=? WHERE id=?').run(range.start + 3600, 'late');
+  await page.goto(`${base}/`);
+  await page.waitFor('!!window.__wbState.view');
+  await openBoard();
+  assert.match(await page.text('.board-tag'), /记录有更新/);
+  assert.equal(await page.text('[data-board-ai]'), '重新生成');
+  const stale = await (await fetch(`${base}/api/review?day=${yesterday}`)).json();
+  assert.equal(stale.review.stale, true);
+  // 「重新生成」带 force，即使指纹没变也会重写
+  await page.click('[data-board-ai]');
+  await page.waitFor('!document.querySelector(".board-tag")');
+  assert.equal(await page.text('.board-ai .board-text'), REPLY);
+  const refreshed = await (await fetch(`${base}/api/review?day=${yesterday}`)).json();
+  assert.equal(refreshed.review.stale, false);
+
+  // ---- 保存图片：沿用 review.js 的排版，760 宽 → 1520 像素的 PNG
   const downloads = await mkdtemp(join(tmpdir(), 'board-png-'));
   try {
     await page.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
@@ -79,7 +159,13 @@ test('每日维护：本地摘要口径、日期边界、不含正文、PNG 下�
     assert.equal(png.readUInt32BE(16), 1520);
   } finally { await rm(downloads, { recursive: true, force: true }); }
 
+  // ---- 窄屏不横向溢出；页面不泄露任务正文与 Key
   await page.setViewport(390, 800);
+  await new Promise((resolve) => setTimeout(resolve, 300));
   assert.ok(await page.evaluate('return document.documentElement.scrollWidth <= innerWidth;'));
+  const html = await page.evaluate('return document.documentElement.outerHTML;');
+  assert.doesNotMatch(html, /私人正文/);
+  assert.doesNotMatch(html, new RegExp(FAKE_KEY));
   assert.deepEqual(page.pageErrors, []);
+  assert.deepEqual(page.consoleErrors, []);
 });

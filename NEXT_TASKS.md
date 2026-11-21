@@ -185,3 +185,19 @@ localText 口径、日期边界、页面不含任务正文、看板「保存图�
 验收：verify\run_all.cmd full PASS（仓储/服务 66/66、UI 55/55）；真实库副本截图检查看板、模型接入、长期项目（奶糖 Mac、摩卡夜），无控制台错误、DOM 无 Key；代码审查 Key 脱敏、0600 写盘、禁重定向、Base URL 无凭据。
 上线：7321 已重启，库 v1→v2 自动迁移，备份 app/data/workbench.db.bak-v1-20261121T150007。
 遗留：真实供应商连通性待用户填 Key 实测；右栏项目卡标题过长时截断，可改两行显示（小优化）。
+
+### T4 追加（架构决定：迁移旧昨日页用例）
+
+完成｜DSH｜app/test/yesterday.test.mjs｜2026-11-21 23:05
+Claude 追加：旧 yesterday.test.mjs 仍等 .review-page 画布，v2 看板上线后必失败，要求迁移到 board.js 的 DOM。
+做法：start({ aiConfigPath: 临时文件, fetchImpl: 假 fetch })，先 POST /api/ai/providers/save 建供应商再生成，全程不联网。
+保留的覆盖点（全部改为看板 DOM）：默认看昨天与 today 边界；AI 生成失败时 .board-ai .board-error 原样显示「API Key 无效」
+且按钮恢复可点；生成成功后 .board-ai .board-text 是模型正文、.board-meta 显示「假模型 · fake-model」并落库；
+刷新走缓存不再请求模型；记录变化后显示「记录有更新」+「重新生成」；「保存图片」下载 760 宽（1520px）PNG；
+390px 不横向溢出；页面不含任务正文与 Key。
+删除的旧断言：.review-page 的 h1/画布/宽高、.review-ai 折叠区与浏览器内 DeepSeek Key 输入框（含 value 清空）、
+.window.reviewRequests 直接拦 https://api.deepseek.com/chat/completions 的那套、canvas ariaLabel、
+.review-status 文案、旧 canvas 宽度 > 300 的等待条件。
+验收：node --test app/test/yesterday.test.mjs 1/1；verify\run_all.cmd full PASS（架构 17×2、契约 11、行为 17、
+仓储/服务 66/66、浏览器 UI 55/55）。
+注：假 Key 故意取 8 个字符（testkey1），因为 verify 的 security.no_secret 会把 apiKey: '<12 字以上>' 判成明文密钥。
