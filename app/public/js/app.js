@@ -26,6 +26,10 @@ const state = {
   day: '',
   month: '',
   timeZone: '',
+  // 服务端认定的"今天"，用来判断页面是否停在今天（跨午夜时自动跟随）
+  todayDay: '',
+  // 用户手动切到别的日期后置 true，跨午夜不再自动跟随
+  userPinnedDate: false,
   monthDays: [],
   view: null,
   stats: null,
@@ -73,6 +77,8 @@ async function refresh() {
       state.day = payload.view.day;
       state.month = state.day.slice(0, 7);
       state.timeZone = payload.view.timeZone;
+    // 记下"现在按工作台时区是哪一天"，用于跨午夜自动翻页
+    state.todayDay = localToday(payload.view.timeZone);
     } else if (state.timeZone && payload.view.timeZone !== state.timeZone) {
       // 服务换了时区（例如重启后改成北京时间）：旧页面算出的钟点会错位，整页重载。
       location.reload();
@@ -191,7 +197,35 @@ function gotoPage(page, { animate = true } = {}) {
 
 // ---------------------------------------------------------------- 计时
 
+// 页面可能从昨天一直开着：跨过北京时间午夜后自动翻到新的一天。
+// 只在「用户没手动切到别的日期」时翻页，避免打断正在翻旧账的人。
+let midnightCheckedAt = 0;
+
+function checkDayRollover() {
+  if (!state.view?.timeZone) return;
+  const now = Date.now();
+  if (now - midnightCheckedAt < 5000) return; // 5 秒查一次就够
+  midnightCheckedAt = now;
+
+  const today = localToday(state.view.timeZone);
+  if (!today) return;
+
+  const previousToday = state.todayDay;
+  if (!previousToday) { state.todayDay = today; return; }
+  if (today === previousToday) return; // 还没跨日
+
+  state.todayDay = today;
+  // 用户手动翻到了别的日期，就不抢他的视图；等他点「今天」再恢复跟随。
+  if (state.userPinnedDate) return;
+  if (state.noteDirty) return; // 有未保存手记时不抢焦点
+
+  state.day = today;
+  state.month = today.slice(0, 7);
+  void reload();
+}
+
 function tick() {
+  checkDayRollover();
   const open = state.view?.openFocus;
   const clock = $('#clock');
   if (!open) {
@@ -282,6 +316,9 @@ function openTaskEditor(taskId, blockId) {
 
 async function switchDay(day) {
   state.day = day;
+  // 手动切到非今天 = 用户想固定看那一天；切回今天就恢复自动跟随
+  const today = localToday(state.view?.timeZone || state.timeZone || 'Asia/Shanghai');
+  state.userPinnedDate = day !== today;
   await refresh();
   await refreshMonth();
 }
@@ -290,6 +327,7 @@ async function switchMonth(delta) {
   if (delta === 0) {
     const today = localToday(state.view.timeZone);
     state.month = today.slice(0, 7);
+    state.userPinnedDate = false; // 回到今天，恢复自动跟随
     if (state.day !== today) {
       state.day = today;
       await refresh();
