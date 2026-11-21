@@ -1,0 +1,14 @@
+# 仓库里各文件的行尾不一致（有的 CRLF 有的 LF），且 Windows 上编辑器会来回改。
+# 统一让 git 忽略行尾差异，diff 与 blame 才看得清真实改动。
+* text=auto
+
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.py   text eol=lf
+*.sql  text eol=lf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
