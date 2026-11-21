@@ -1,1 +1,113 @@
-/* 每日维护看板（js/board.js）。只引用 tokens.css 的令牌，不写颜色值。工单 T4（DSH）。 */
+/* 每日维护看板（js/board.js）。只引用 tokens.css 的令牌，不写颜色值。
+   视觉方向：奶糖 Mac 的圆润卡片；深色「摩卡夜」下靠 --surface / --line / --ink 自动反色。 */
+
+.board-page{max-width:880px;margin:0 auto;min-width:0}
+.board-head{align-items:flex-start;flex-wrap:wrap;gap:10px}
+.board-headline{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0}
+.board-headline h1{margin:0;font-size:24px;letter-spacing:-.5px}
+.board-date{font:500 13.5px var(--small-text);color:var(--muted)}
+.board-headtools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.board-headtools .iconbtn{width:28px;height:28px;font-size:15px;line-height:1}
+
+/* ------------------------------------------------------------ 卡片 */
+.board-card{
+  display:block;margin-bottom:12px;padding:16px 18px;min-width:0;
+  border-radius:var(--radius-l);background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow-1);
+}
+.board-cardhead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:9px}
+.board-cardhead h2{font-size:15px}
+.board-meta{font:11.5px var(--small-text);color:var(--faint);overflow-wrap:anywhere}
+.board-text{margin:0;font-size:13.5px;line-height:1.7;color:var(--ink-2);overflow-wrap:anywhere;white-space:pre-wrap}
+.board-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}
+.board-tag{display:inline-flex;align-items:center;margin-top:9px;padding:2px 9px;border-radius:999px;
+  background:var(--accent-soft);border:1px solid var(--accent-line);color:var(--accent-ink);font-size:11.5px;font-weight:600}
+.board-error{margin:10px 0 0;padding:8px 11px;border-radius:var(--radius-s);background:var(--danger-soft);
+  border:1px solid var(--danger-line);color:var(--danger);font-size:12.5px;overflow-wrap:anywhere}
+
+/* ------------------------------------------------------------ 数字卡 */
+.board-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.board-metric{padding:14px 15px;border-radius:var(--radius-m);background:var(--surface);
+  border:1px solid var(--line);box-shadow:var(--shadow-1);min-width:0}
+.board-metric small{display:block;font-size:11.5px;color:var(--muted)}
+.board-metric strong{display:block;margin-top:5px;font:500 26px/1.15 var(--heading);color:var(--hero-ink);
+  font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.board-metric strong em{margin-left:3px;font:600 12.5px var(--small-text);font-style:normal;color:var(--muted)}
+.board-metric strong em.tight{margin-left:1px}
+.board-metric>span{display:block;margin-top:5px;font:11.5px/1.4 var(--small-text);color:var(--faint);overflow-wrap:anywhere}
+
+/* ------------------------------------------------------------ 没做完的计划 */
+.board-rows{display:grid;gap:2px}
+.board-row{display:flex;align-items:center;gap:9px;padding:7px 2px;border-bottom:1px solid var(--paper-line);min-width:0}
+.board-row:last-child{border-bottom:0}
+.board-row time{flex:none;min-width:42px;font:12px var(--num);color:var(--muted);font-variant-numeric:tabular-nums}
+.board-rowtitle{flex:1;min-width:0;font-size:13px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.board-row small{flex:none;font:11.5px var(--small-text);color:var(--faint)}
+.board-row.handled .board-rowtitle{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--faint)}
+.board-mark{flex:none;padding:2px 9px;border-radius:999px;background:var(--accent-soft);
+  color:var(--accent-ink);font-size:11.5px;font-weight:600}
+
+/* ------------------------------------------------------------ 长期项目 */
+.board-project{padding:11px 0;border-bottom:1px solid var(--paper-line);min-width:0}
+.board-project:last-child{border-bottom:0;padding-bottom:0}
+.board-projecthead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;min-width:0}
+.board-projecthead b{font-size:13.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.board-projecthead small{flex:none;font:11.5px var(--small-text);color:var(--muted)}
+.board-late{color:var(--danger);font-weight:600}
+.board-projectfoot{display:block;margin-top:4px;font:11.5px var(--small-text);color:var(--faint)}
+.board-field{display:grid;gap:4px;margin-top:9px;font-size:11.5px;color:var(--muted)}
+.board-field input{width:100%;padding:6px 9px;border:1px solid var(--line-strong);border-radius:var(--radius-s);
+  background:var(--surface-2);color:var(--ink);font-size:12.5px}
+.board-field input:focus{outline:0;border-color:var(--accent-line);box-shadow:0 0 0 3px var(--ring-soft)}
+.board-logrow{display:flex;align-items:center;gap:9px;margin-top:8px;flex-wrap:wrap}
+.board-range{display:flex;align-items:center;gap:7px;flex:1;min-width:130px;font-size:11.5px;color:var(--muted)}
+/* 原生滑块在深色皮肤下会变成一条黑杠，这里统一画成令牌色的细轨 + 圆点 */
+.board-range input{
+  flex:1;min-width:0;height:16px;margin:0;padding:0;background:transparent;
+  -webkit-appearance:none;appearance:none;cursor:pointer;
+}
+.board-range input::-webkit-slider-runnable-track{height:5px;border-radius:3px;background:var(--track)}
+.board-range input::-moz-range-track{height:5px;border-radius:3px;background:var(--track)}
+.board-range input::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;width:14px;height:14px;margin-top:-4.5px;border-radius:50%;
+  background:var(--accent);border:2px solid var(--surface);box-shadow:var(--shadow-btn);
+}
+.board-range input::-moz-range-thumb{
+  width:12px;height:12px;border-radius:50%;background:var(--accent);
+  border:2px solid var(--surface);box-shadow:var(--shadow-btn);
+}
+.board-range input:focus-visible{outline-offset:3px}
+.board-logrow output{min-width:38px;font:600 12px var(--num);color:var(--accent-ink);text-align:right;
+  font-variant-numeric:tabular-nums}
+
+/* ------------------------------------------------------------ 当天明细 */
+.board-details{padding:13px 2px;border-bottom:1px solid var(--line)}
+.board-details summary{cursor:pointer;color:var(--accent-ink);font-weight:600;font-size:13.5px}
+.board-details h3{margin:12px 0 5px;font-size:12.5px;color:var(--muted);font-weight:600}
+.board-detailgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.board-list{margin:0;padding-left:18px}
+.board-list li{display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:12.5px;color:var(--ink-2);overflow-wrap:anywhere}
+.board-list li b{margin-left:auto;flex:none;font:600 11.5px var(--small-text);color:var(--muted)}
+.board-list li time{flex:none;font:11.5px var(--num);color:var(--faint);font-variant-numeric:tabular-nums}
+
+/* ------------------------------------------------------------ 空白天 */
+.board-empty{display:grid;justify-items:center;gap:6px;padding:34px 20px;text-align:center}
+.board-mascot{width:64px;height:64px;background:var(--mascot) center/contain no-repeat;
+  filter:drop-shadow(0 6px 12px color-mix(in srgb,var(--shadow-tint) 14%,transparent))}
+.board-empty p{margin:0;font-size:15px;font-weight:600;color:var(--ink-2)}
+.board-empty small{max-width:340px;font:12.5px/1.6 var(--small-text);color:var(--muted)}
+
+/* ------------------------------------------------------------ 响应式 */
+@media(max-width:1000px){
+  .board-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:600px){
+  .board-detailgrid{grid-template-columns:1fr}
+  .board-card{padding:14px 14px;border-radius:var(--radius-m)}
+}
+@media(max-width:440px){
+  .board-headline h1{font-size:20px}
+  .board-metrics{grid-template-columns:1fr}
+  .board-row{flex-wrap:wrap}
+  .board-rowtitle{flex:1 1 100%}
+  .board-row small{margin-left:auto}
+}
