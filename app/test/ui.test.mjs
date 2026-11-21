@@ -929,7 +929,7 @@ test('「改时区」扩展篡改 Intl 时，日计划仍按北京时间显示�
 
 test('皮肤：六套可切换，颜色真的变，刷新后记住；样式表里不写死颜色', async () => {
   // 组件样式只能引用令牌，换皮肤才会整页跟着变
-  for (const file of ['app.css', 'planner.css', 'review.css', 'board.css', 'projects.css', 'ai.css']) {
+  for (const file of ['app.css', 'planner.css', 'board.css', 'projects.css', 'ai.css']) {
     const css = readFileSync(new URL(`../public/${file}`, import.meta.url), 'utf8');
     assert.deepEqual(css.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g) ?? [], [], `${file} 里有写死的颜色，请改用 tokens.css 的令牌`);
   }

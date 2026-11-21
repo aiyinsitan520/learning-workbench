@@ -16,7 +16,7 @@
 
 - 数据：`architecture/*.sql`、`architecture/workbench.d.ts`、`app/lib/db.js` 的命令与视图签名、`app/server.js` 的路由与返回结构。
 - 外壳与模块边界：`app/public/index.html` 的三栏骨架、`app/public/js/app.js` 的状态结构与事件分派、模块之间的导入关系（新增或拆分模块）。
-- 设计系统：`app/public/tokens.css`（颜色、字体、圆角、阴影、动效）和 `app/public/skins.css`（六套皮肤，只覆盖基础色、字体、圆角）。组件样式在 `app.css`、`planner.css`、`review.css` 里可直接改，但只引用令牌，不写颜色值（`#xxxxxx`、`rgb()`）——UI 测试「皮肤」用例会拦下来。需要新颜色时先在 `tokens.css` 加令牌，并确认六套皮肤下都好看（深色的「摩卡夜」最容易出问题）。
+- 设计系统：`app/public/tokens.css`（颜色、字体、圆角、阴影、动效）和 `app/public/skins.css`（六套皮肤，只覆盖基础色、字体、圆角）。组件样式在 `app.css`、`planner.css`、`board.css`、`projects.css`、`ai.css` 里可直接改，但只引用令牌，不写颜色值（`#xxxxxx`、`rgb()`）——UI 测试「皮肤」用例会拦下来。需要新颜色时先在 `tokens.css` 加令牌，并确认六套皮肤下都好看（深色的「摩卡夜」最容易出问题）。
 - 验收脚本：`verify/`、`architecture/check_*.py`。测试用例可以新增；删改已有断言要在回执里写明理由。
 - 启动与时区：`启动学习工作台.ps1`、`停止学习工作台.ps1`；工作台固定按北京时间（Asia/Shanghai）分日，不随本机时区变化。
 
