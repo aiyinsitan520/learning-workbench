@@ -933,18 +933,22 @@ test('皮肤：六套可切换，颜色真的变，刷新后记住；样式表�
     const css = readFileSync(new URL(`../public/${file}`, import.meta.url), 'utf8');
     assert.deepEqual(css.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g) ?? [], [], `${file} 里有写死的颜色，请改用 tokens.css 的令牌`);
   }
+  // 旧版每次打开都会自动写入 workbench.skin=mint，不能把它当成用户的选择
+  await page.evaluate(`localStorage.setItem('workbench.skin', 'mint'); localStorage.removeItem('workbench.skin-choice'); return true;`);
   await page.goto(`${base}/`);
   await page.waitFor('!!window.__wbState.view');
   const accentOf = `getComputedStyle(document.querySelector('.primary, #newTask button')).backgroundColor`;
-  const mint = await page.evaluate(`return ${accentOf};`);
+  // 没选过皮肤时默认是奶糖 Mac
+  assert.equal(await page.evaluate(`return document.documentElement.dataset.skin;`), 'candy');
+  const candy = await page.evaluate(`return ${accentOf};`);
   await page.click('#skinToggle');
   assert.equal(await page.count('[data-skin-pick]'), 6);
-  const seen = new Set([mint]);
-  for (const id of ['candy', 'latte', 'mocha', 'nord', 'rose']) {
+  const seen = new Set([candy]);
+  for (const id of ['mint', 'latte', 'mocha', 'nord', 'rose']) {
     await page.click(`[data-skin-pick="${id}"]`);
     const state = await page.evaluate(`return { skin: document.documentElement.dataset.skin,
       label: document.querySelector('#skinToggle b').textContent, color: ${accentOf} };`);
-    assert.equal(state.skin, id);
+    assert.equal(state.skin ?? 'mint', id);
     assert.ok(!seen.has(state.color), `${id} 的按钮颜色应与其他皮肤不同`);
     seen.add(state.color);
     await page.click('#skinToggle');
@@ -956,8 +960,8 @@ test('皮肤：六套可切换，颜色真的变，刷新后记住；样式表�
   await page.screenshot(shot('skin-mocha.png'));
   // 恢复默认，免得影响后面的用例
   await page.click('#skinToggle');
-  await page.click('[data-skin-pick="mint"]');
-  assert.equal(await page.evaluate(`return document.documentElement.dataset.skin ?? 'mint';`), 'mint');
+  await page.click('[data-skin-pick="candy"]');
+  assert.equal(await page.evaluate(`return document.documentElement.dataset.skin;`), 'candy');
 });
 
 test('无控制台错误、无未捕获异常', async () => {

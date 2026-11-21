@@ -40,3 +40,7 @@
 素材：E:/AI项目/软件UI素材库 新增 theme-001、illustration-002（均标明由 Claude 收录，MIT 许可），INDEX/DECISIONS/PREFERENCES 已更新（备份 .bak-20261121-cc-skins）。
 验收：verify\run_all.cmd full PASS（55/55、UI 38/38，新增「皮肤」用例含「样式表无写死颜色」检查）；六套皮肤首页/日历页截图已人工检查。
 遗留：默认皮肤是否改为「奶糖 Mac」待用户决定；yesterday.test 与 ui.test 并行时偶发 PNG 下载超时（单独跑通过，重跑通过）。
+
+完成｜Claude｜app/public/js/skins.js、index.html、app/test/ui.test.mjs、app/README.md｜2026-11-21 默认皮肤改为奶糖 Mac
+说明：按用户要求默认 candy。选择改存新键 workbench.skin-choice，只在用户点选时写入；旧键 workbench.skin 曾被每次启动自动写成 mint，已弃用。
+验收：verify\run_all.cmd full PASS（55/55、UI 38/38）。
