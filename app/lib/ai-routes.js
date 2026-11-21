@@ -13,11 +13,11 @@ const presets = [
   ['siliconflow', '硅基流动', 'https://api.siliconflow.cn/v1', 'Qwen/Qwen2.5-7B-Instruct', 'https://cloud.siliconflow.cn/account/ak', '多模型推理平台'],
   ['openrouter', 'OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-4o-mini', 'https://openrouter.ai/keys', '多供应商聚合接口'],
   ['openai', 'OpenAI', 'https://api.openai.com/v1', 'gpt-4o-mini', 'https://platform.openai.com/api-keys', 'OpenAI 官方接口'],
-  ['anthropic', 'Anthropic', 'https://api.anthropic.com', 'claude-sonnet-4-6', 'https://console.anthropic.com/settings/keys', 'Claude 官方接口'],
+  ['anthropic', 'Anthropic', 'https://api.anthropic.com', ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'], 'https://console.anthropic.com/settings/keys', 'Claude 官方接口'],
   ['ollama', 'Ollama 本地', 'http://127.0.0.1:11434/v1', 'qwen3', '', '使用本机已下载的模型'],
   ['custom', '自定义', '', '', '', '手动填写兼容接口'],
 ].map(([id, name, baseUrl, model, keyUrl, note]) => ({
-  id, name, baseUrl, models: model ? [model] : [], keyUrl, note,
+  id, name, baseUrl, models: Array.isArray(model) ? model : model ? [model] : [], keyUrl, note,
   protocol: id === 'anthropic' ? 'anthropic' : 'openai', needsKey: id !== 'ollama',
 }));
 
