@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS task_notes (
+  task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision >= 1)
+) STRICT;

@@ -1,0 +1,316 @@
+// 学习工作台本地服务：零依赖 HTTP + JSON API + 静态托管。
+// 只监听回环地址；数据落在应用私有目录的 SQLite 文件里。
+
+import { createServer } from 'node:http';
+import { readFile, stat } from 'node:fs/promises';
+import { extname, join, normalize, sep } from 'node:path';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { openDatabase, WorkbenchError, SCHEMA_PATH } from './lib/db.js';
+import { isValidDate, localDateOf, nowSeconds } from './lib/time.js';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const PUBLIC = join(HERE, 'public');
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+};
+
+const BODY_LIMIT = 512 * 1024;
+const BACKUP_TABLES = ['tasks', 'schedule_blocks', 'focus_sessions', 'day_notes', 'note_blocks', 'task_notes'];
+
+export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root = HERE } = {}) {
+  const workbench = openDatabase(dbPath, { timeZone });
+  const publicDir = join(root, 'public');
+  const projectDir = join(root, '..');
+
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    try {
+      if (url.pathname.startsWith('/api/')) {
+        await handleApi(workbench, req, res, url);
+        return;
+      }
+      await serveStatic(req, res, url.pathname, publicDir, projectDir);
+    } catch (err) {
+      sendJson(res, 500, { ok: false, reason: 'storage', message: String(err?.message ?? err) });
+    }
+  });
+
+  server.on('close', () => {
+    try {
+      workbench.close();
+    } catch {
+      /* 已关闭 */
+    }
+  });
+
+  return { server, workbench };
+}
+
+// ------------------------------------------------------------------ API
+
+async function handleApi(wb, req, res, url) {
+  const route = `${req.method} ${url.pathname}`;
+  try {
+    const body = req.method === 'POST' ? await readJson(req) : null;
+    switch (route) {
+      case 'GET /api/view': {
+        const day = url.searchParams.get('day') || localDateOf(nowSeconds(), wb.timeZone);
+        const tz = url.searchParams.get('tz') || wb.timeZone;
+        wb.settleExpired();
+        const view = wb.readDay(day, tz);
+        const recommended = wb.recommend(day, url.searchParams.get('prefer') || null, tz);
+        const focusLog = wb.readFocusLog(day, tz);
+        const stats = wb.readStats(day, tz);
+        sendJson(res, 200, { ok: true, view, recommended, focusLog, stats });
+        return;
+      }
+      case 'GET /api/month': {
+        const month = url.searchParams.get('month') || localDateOf(nowSeconds(), wb.timeZone).slice(0, 7);
+        const tz = url.searchParams.get('tz') || wb.timeZone;
+        sendJson(res, 200, { ok: true, days: wb.readMonth(month, tz) });
+        return;
+      }
+      case 'GET /api/task-note': {
+        const note = wb.readTaskNote(url.searchParams.get('task'));
+        sendJson(res, 200, { ok: true, note });
+        return;
+      }
+      case 'POST /api/command': {
+        const command = body?.command ?? body;
+        const result = execute(wb, command);
+        sendJson(res, 200, { ok: true, result });
+        return;
+      }
+      case 'POST /api/import': {
+        // 只允许导入到空库，避免覆盖已有数据。
+        const payload = body;
+        if (!payload || payload.format !== 'learning-space-workbench') {
+          throw new WorkbenchError('invalid', '不是本工作台的导出文件');
+        }
+        const existing = BACKUP_TABLES.reduce(
+          (sum, t) => sum + Number(wb.db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n), 0,
+        );
+        if (existing > 0) {
+          throw new WorkbenchError('conflict', '当前库里已有数据，导入只支持空库');
+        }
+        let inserted = 0;
+        wb.db.exec('BEGIN IMMEDIATE');
+        try {
+          for (const table of BACKUP_TABLES) {
+            const rows = payload.tables?.[table];
+            if (!Array.isArray(rows) || !rows.length) continue;
+            for (const row of rows) {
+              const cols = Object.keys(row);
+              if (!cols.length) continue;
+              const sql = `INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`;
+              wb.db.prepare(sql).run(...cols.map((c) => row[c]));
+              inserted += 1;
+            }
+          }
+          wb.db.exec('COMMIT');
+        } catch (err) {
+          wb.db.exec('ROLLBACK');
+          throw err;
+        }
+        sendJson(res, 200, { ok: true, inserted });
+        return;
+      }
+      case 'GET /api/export': {
+        // 整库导出为 JSON，便于备份与迁移。
+        const data = {};
+        for (const table of BACKUP_TABLES) {
+          data[table] = wb.db.prepare(`SELECT * FROM ${table}`).all();
+        }
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        res.writeHead(200, {
+          'content-type': 'application/json; charset=utf-8',
+          'content-disposition': `attachment; filename="workbench-${stamp}.json"`,
+          'cache-control': 'no-store',
+        });
+        res.end(JSON.stringify({
+          format: 'learning-space-workbench',
+          version: 1,
+          exportedAt: Math.floor(Date.now() / 1000),
+          timeZone: wb.timeZone,
+          tables: data,
+        }, null, 2));
+        return;
+      }
+      case 'GET /api/insights': {
+        const days = Number(url.searchParams.get('days') || 14);
+        const tz = url.searchParams.get('tz') || wb.timeZone;
+        const endDay = url.searchParams.get('day') || null;
+        const insights = wb.readInsights(days, tz, endDay);
+        sendJson(res, 200, { ok: true, insights });
+        return;
+      }
+      case 'GET /api/health':
+        sendJson(res, 200, { ok: true, timeZone: wb.timeZone, now: nowSeconds() });
+        return;
+      default:
+        sendJson(res, 404, { ok: false, reason: 'invalid', message: `未知接口 ${route}` });
+    }
+  } catch (err) {
+    if (err instanceof WorkbenchError) {
+      const status = err.reason === 'missing' ? 404 : err.reason === 'conflict' ? 409 : err.reason === 'invalid' ? 400 : 500;
+      sendJson(res, status, { ok: false, reason: err.reason, message: err.message });
+      return;
+    }
+    sendJson(res, 500, { ok: false, reason: 'storage', message: String(err?.message ?? err) });
+  }
+}
+
+/** 把 workbench.d.ts 的 Command 映射到仓储方法。 */
+export function execute(wb, command) {
+  const type = command?.type;
+  switch (type) {
+    case 'createTask':
+      return wb.createTask({
+        id: command.id,
+        title: command.title,
+        course: command.course ?? '',
+        estimatedSeconds: command.estimatedSeconds ?? null,
+      });
+    case 'updateTask':
+      return wb.updateTask({
+        taskId: command.taskId,
+        title: command.title,
+        course: command.course,
+        estimatedSeconds: command.estimatedSeconds,
+      });
+    case 'setTaskCompleted':
+      return wb.setTaskCompleted({ taskId: command.taskId, completed: command.completed });
+    case 'saveSchedule':
+      return wb.saveSchedule({ block: command.block });
+    case 'removeSchedule':
+      return wb.removeSchedule({ blockId: command.blockId });
+    case 'startFocus':
+      return wb.startFocus({
+        id: command.id,
+        taskId: command.taskId ?? null,
+        plannedSeconds: command.plannedSeconds,
+      });
+    case 'changeFocus':
+      return wb.changeFocus({
+        id: command.id,
+        expectedRevision: command.expectedRevision,
+        action: command.action,
+      });
+    case 'saveDayNote':
+      return wb.saveDayNote({ note: command.note, expectedRevision: command.expectedRevision ?? null });
+    case 'saveTaskNote':
+      return wb.saveTaskNote(command.taskId, command.body, command.expectedRevision);
+    default:
+      throw new WorkbenchError('invalid', `未知命令：${type}`);
+  }
+}
+
+function readJson(req) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > BODY_LIMIT) {
+        reject(new WorkbenchError('invalid', '请求体过大'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      const text = Buffer.concat(chunks).toString('utf8');
+      if (!text) {
+        resolve(null);
+        return;
+      }
+      try {
+        resolve(JSON.parse(text));
+      } catch {
+        reject(new WorkbenchError('invalid', '请求体不是合法 JSON'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function sendJson(res, status, payload) {
+  const body = JSON.stringify(payload);
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(body),
+    'cache-control': 'no-store',
+  });
+  res.end(body);
+}
+
+// ------------------------------------------------------------------ 静态
+
+async function serveStatic(req, res, pathname, publicDir, projectDir) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405, { allow: 'GET, HEAD' });
+    res.end('Method Not Allowed');
+    return;
+  }
+  let rel = decodeURIComponent(pathname);
+  if (rel === '/' || rel === '') rel = '/index.html';
+  // 只允许访问 public/ 下的文件，以及根目录的图片素材。
+  const isAsset = /^\/(desk|kitten)\.png$/.test(rel);
+  const base = isAsset ? projectDir : publicDir;
+  const target = normalize(join(base, rel.replace(/^\/+/, '')));
+  if (!target.startsWith(base + sep) && target !== base) {
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
+  }
+  try {
+    const info = await stat(target);
+    if (!info.isFile()) throw new Error('not a file');
+    const data = await readFile(target);
+    res.writeHead(200, {
+      'content-type': MIME[extname(target).toLowerCase()] ?? 'application/octet-stream',
+      'content-length': data.length,
+      'cache-control': isAsset ? 'public, max-age=3600' : 'no-store',
+    });
+    res.end(req.method === 'HEAD' ? undefined : data);
+  } catch {
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end('Not Found');
+  }
+}
+
+// ------------------------------------------------------------------ 入口
+
+export async function start({ port = 0, host = '127.0.0.1', dbPath, timeZone, root } = {}) {
+  const { server, workbench } = createWorkbenchServer({ dbPath, timeZone, root });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, host, resolve);
+  });
+  const address = server.address();
+  const url = `http://${host}:${address.port}/`;
+  return { server, workbench, url, port: address.port };
+}
+
+if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1].replace(/\\/g, '/')}`).href) {
+  const port = Number(process.env.PORT ?? 7321);
+  const dbPath = process.env.WORKBENCH_DB ?? join(HERE, 'data', 'workbench.db');
+  // 工作台固定按北京时间分日（用户 2026-11-21 决定），不跟随本机时区；需要时用 WORKBENCH_TZ 覆盖。
+  const timeZone = process.env.WORKBENCH_TZ || 'Asia/Shanghai';
+  const { url } = await start({ port, dbPath, timeZone });
+  console.log(`学习工作台已启动：${url}`);
+  console.log(`数据库：${dbPath}`);
+  console.log(`时区：${timeZone}`);
+  console.log(`schema：${SCHEMA_PATH}`);
+}

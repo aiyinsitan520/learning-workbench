@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>学习工作台</title>
+<link rel="icon" type="image/png" href="/icon.png">
+<meta name="theme-color" content="#f6f9f7">
+<link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/planner.css">
+<link rel="stylesheet" href="/review.css">
+</head>
+<body>
+<header class="macbar">
+  <div class="brand"><span class="brandmark" data-icon="book"></span><span class="brandname">Learning Space</span></div>
+  <div class="context" aria-label="当前位置">
+    <b id="contextPage">今日工作台</b>
+    <span class="ctxdate"><span id="todayText">正在读取…</span><span class="day" id="weekday"></span></span>
+  </div>
+  <nav id="tools" class="toolbar" aria-label="切换中央页面"></nav>
+  <div class="headtools">
+    <button type="button" id="fontToggle" class="fonttoggle" aria-pressed="true">圆体</button>
+    <div class="island">
+      <button class="islandMain" id="islandMain" aria-expanded="false" aria-controls="islandBox"
+        aria-label="贾维喵专注灵动岛">
+        <img src="/kitten.png" alt="">
+        <b>贾维喵</b>
+        <span class="statusDot"></span>
+        <span id="islandTime">待专注</span>
+      </button>
+      <section class="islandbox" id="islandBox" hidden>
+        <small>当前学习任务</small>
+        <strong id="islandTask">—</strong>
+        <button id="islandAct" class="primary">开始 25 分钟</button>
+        <button data-action="choose">换任务</button>
+        <button data-page="focus">专注详情</button>
+      </section>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="left" aria-label="任务侧栏">
+    <div class="railTools">
+      <button id="collapse" class="iconbtn" aria-label="折叠任务侧栏" title="折叠任务侧栏" aria-expanded="true"><span data-icon="sidebar"></span></button>
+      <div class="section-head pending-heading"><h2>未完成任务</h2><b class="count" id="count">0</b></div>
+      <button id="quickAdd" class="iconbtn" title="新建任务" aria-label="新建任务"><span data-icon="plus"></span></button>
+    </div>
+    <div class="railList" id="railList" aria-label="任务快捷入口"></div>
+    <form id="newTask">
+      <input maxlength="48" id="newTitle" aria-label="新任务名称" placeholder="写下一个新任务…" autocomplete="off">
+      <button title="添加任务" aria-label="添加任务"><span data-icon="plus"></span></button>
+    </form>
+    <div class="sidebar-mode" aria-label="任务侧栏视图">
+      <button type="button" data-sidebar-view="plan" aria-pressed="true">计划</button>
+      <button type="button" data-sidebar-view="tasks" aria-pressed="false">待办</button>
+    </div>
+    <div id="pending" class="scrolly" aria-label="待办任务" hidden></div>
+    <div id="planner" class="planner-panel">
+      <div class="planner-toolbar">
+        <span id="plannerDate"></span>
+        <button type="button" data-plan-add aria-label="添加时间块" title="添加时间块">＋</button>
+      </div>
+      <div id="plannerGrid" class="planner-scroll" aria-label="日计划时间轴"></div>
+    </div>
+    <div class="leftfoot">
+      <span>本机资料</span>
+      <button class="iconbtn ghost" id="exportData" title="导出为 JSON 备份" aria-label="导出备份"><span data-icon="download"></span></button>
+    </div>
+  </aside>
+
+  <main id="main" aria-live="polite">
+    <section id="homeFocus" class="hero" aria-labelledby="homeFocusTitle" hidden>
+      <div class="copy">
+        <div class="byline"><span data-icon="paw"></span> 贾维斯喵管家</div>
+        <h2 id="homeFocusTitle"></h2>
+        <p id="homeFocusStatus"></p>
+        <div class="actions">
+          <button type="button" class="primary" data-page="focus"><span data-icon="play"></span> 回到专注</button>
+        </div>
+      </div>
+      <img src="/desk.png" alt="贾维斯喵伏在学习笔记旁">
+    </section>
+    <div id="mainContent"></div>
+  </main>
+
+  <aside class="right" aria-label="今日概况">
+    <section class="right-summary">
+      <div class="section-head"><h2>今日完成</h2><span id="doneCount" class="count">0</span></div>
+      <div class="progressbox">
+        <div><strong id="percent">0%</strong><small>今日任务完成度</small></div>
+        <div class="track"><i id="progress"></i></div>
+      </div>
+      <div id="done" class="scrolly done-list"></div>
+      <div class="rule"></div>
+      <div class="section-head"><h2>学习记录</h2><span data-icon="activity"></span></div>
+      <div class="record">
+        <div><strong id="minutes">0</strong><small>分钟专注</small></div>
+        <div><strong id="sessions">0</strong><small>次专注</small></div>
+      </div>
+    </section>
+  </aside>
+</div>
+
+<button id="cat" class="cat" aria-label="唤起贾维喵" title="贾维喵" aria-expanded="false" aria-controls="catPanel">
+  <img src="/kitten.png" alt="">
+</button>
+
+<div id="catPanel" class="catpanel" hidden>
+  <div class="cathead">
+    <img src="/kitten.png" alt="">
+    <div><b>贾维喵</b><small id="catState">待命中</small></div>
+    <button class="close" id="catClose" aria-label="收起管家">×</button>
+  </div>
+  <div id="catBody" class="catbody"></div>
+</div>
+
+<dialog id="dialog">
+  <form method="dialog"><button class="close" aria-label="关闭">×</button></form>
+  <div id="dialogBody"></div>
+</dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

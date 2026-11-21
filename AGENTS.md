@@ -1,0 +1,74 @@
+# 学习工作台协作规则
+
+本项目由三个 Agent 协作：**Claude Code** 负责顶层设计与架构，**Codex** 和 **DSH** 负责具体实现、修 bug 与机械整理。用户决定做什么、验收结果。三方读同一份规则（本文件），按同一套命令验收，在同一处登记进度。
+
+## 1. 分工
+
+| 角色 | 负责 | 不做 |
+| --- | --- | --- |
+| 用户 | 提需求、选方案、最终验收 | — |
+| Claude Code（架构） | 模块划分与目录结构；数据契约（`architecture/schema.sql`、`task_notes.sql`、`workbench.d.ts`、`/api/*` 接口形状）；设计系统（`app/public/tokens.css`、素材库选型）；大改版与重构；把需求拆成工单；审查实现是否守住边界 | 不和实现方抢同一批文件 |
+| Codex / DSH（实现） | 按工单修 bug、加小功能、调样式细节、补测试；在工单列出的文件内工作 | 不改「架构文件」（见第 2 节）；不为了让测试通过而改断言的含义 |
+
+简单 bug 可以由用户直接交给 Codex 或 DSH，不必经过 Claude Code。
+
+## 2. 架构文件（改动需先找 Claude Code 或用户确认）
+
+- 数据：`architecture/*.sql`、`architecture/workbench.d.ts`、`app/lib/db.js` 的命令与视图签名、`app/server.js` 的路由与返回结构。
+- 外壳与模块边界：`app/public/index.html` 的三栏骨架、`app/public/js/app.js` 的状态结构与事件分派、模块之间的导入关系（新增或拆分模块）。
+- 设计系统：`app/public/tokens.css`（颜色、字体、圆角、阴影、动效）。组件样式在 `app.css` 里可直接改，但只引用令牌，不写新的硬编码颜色。
+- 验收脚本：`verify/`、`architecture/check_*.py`。测试用例可以新增；删改已有断言要在回执里写明理由。
+- 启动与时区：`启动学习工作台.ps1`、`停止学习工作台.ps1`；工作台固定按北京时间（Asia/Shanghai）分日，不随本机时区变化。
+
+实现中发现必须动这些文件，先停下来，在回执里写「需要架构决定：……」，由 Claude Code 或用户处理。
+
+## 3. 工单格式
+
+任何一方派单或接单都用这个格式，写进根目录 `NEXT_TASKS.md` 的对应日期段落，或直接贴给执行方：
+
+```text
+工单：<一句话目标>
+可改文件：<路径列表，不在列表里的不改>
+不许动：<可选，例如 tokens.css、schema>
+完成标准：<用户能看到的结果>＋ verify\run_all.cmd 通过（涉及界面加 full）
+```
+
+## 4. 同一时间一个文件只有一个人改
+
+项目目录没有 Git，两个 Agent 同时改一个文件会互相覆盖，且无法回退。
+
+- 开工前在 `NEXT_TASKS.md` 末尾写一行认领：`进行中｜<Agent>｜<文件列表>｜<开始时间>`；完成后改成结果。
+- 看到别人认领了同一文件，就等，或者改做别的。
+- 改动较大前把原文件复制到 `设计备份/`（命名：`原文件名.bak-日期-简述`）。
+
+## 5. 统一验收
+
+```powershell
+verify\run_all.cmd          # 快速：架构、契约、行为、仓储/服务，约 10 秒
+verify\run_all.cmd full     # 完整：再加真浏览器 UI 测试，约 1–2 分钟
+```
+
+- 交付前必须跑，回执里贴真实结果（通过数 / 失败数）。没跑或失败就写明，不写「应该没问题」。
+- 所有测试只用临时库或内存库。**禁止**对 `app/data/workbench.db`（用户真实数据）运行 seed、导入或测试写入；需要改用户数据时，先得到用户同意，并只走 `/api/command`。
+- UI 测试会在当前目录写 `app/shots/`，`run_all.cmd full` 已自动在临时目录运行。
+- 正在使用的服务在 7321 端口。改了 `app/public/` 的文件，用户刷新即可；改了 `server.js` 或 `app/lib/`，用停止脚本加启动脚本重启，不要按历史 PID 杀进程。
+
+## 6. 回执
+
+完成或受阻时回一条，只写必要信息：
+
+```text
+完成｜阻塞  ｜ 改动文件 ｜ 命令与结果 ｜ 遗留问题或需要的决定
+```
+
+并在根目录 `docs/agent-handoff/SESSION_LOG.md` 末尾追加一行摘要。
+
+## 7. DSH 的 HUD 回执（沿用）
+
+Codex 通过 Agent HUD 派单给 DSH 时：每单只发目标、可改文件和验收条件，用 `reply_hint:true` 并保存消息 ID。DSH 完成或受阻时用 `send_message(reply_to=收到的消息ID, reply_hint=false)` 回一次，正文按第 6 节格式。派单方用 `get_message` 查同一编号，不发消息催进度；同一结果只验收一次，末单归档后停止往返。
+
+## 8. 目录速查
+
+- `app/` 是可运行实现（Node 22+ 内置 sqlite，零第三方依赖），说明见 `app/README.md` 的「结构」一节。
+- 根目录的 `index.html`、`studio.js`、`studio.css`、`Mac工作台.html` 是早期交互样稿，只作对照，不当实现改。
+- 架构与阶段说明在 `工作台架构.md`；视觉改版先读 `E:/AI项目/软件UI素材库/AGENTS.md`，选型由用户确认后记入素材库 `DECISIONS.md`。

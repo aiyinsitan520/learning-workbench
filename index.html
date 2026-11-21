@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Learning Space · 学习工作台</title><link rel="stylesheet" href="studio.css"></head>
+<body><header><div class="brand"><span class="brandmark" data-icon="book"></span>Learning Space</div><span class="divider"></span><span class="crumb">个人学习空间</span><a href="Mac工作台.html" style="color:#365f54;font-size:12px">预览 Mac 布局</a><div class="headright"><span class="todaydot"></span> 2026 年 11 月 20 日 <b class="day">周五</b><img src="kitten.png" alt="贾维斯喵"></div></header>
+<div class="shell"><aside class="left"><div class="section-head"><h2>待办任务</h2><b class="count" id="count"></b></div>
+<form id="newTask"><input maxlength="48" id="newTitle" aria-label="新任务名称" placeholder="写下一个新任务…"><button title="添加任务" aria-label="添加任务">＋</button></form><div id="pending"></div>
+<div class="leftfoot"><span data-icon="folder"></span> 我的工作台 <span class="local">本地样稿</span></div></aside>
+<main id="main"></main><aside class="right"><h2>工作台工具</h2><nav id="tools"></nav><div class="rule"></div><div class="section-head"><h2>今日完成</h2><span id="doneCount" class="count"></span></div><div class="progressbox"><div><strong id="percent"></strong><small>今日任务完成度</small></div><div class="track"><i id="progress"></i></div></div><div id="done"></div><div class="rule"></div><div class="section-head"><h2>学习记录</h2><span data-icon="activity"></span></div><div class="record"><div><strong id="minutes">45</strong><small>分钟专注</small></div><div><strong id="sessions">2</strong><small>次专注</small></div></div></aside></div>
+<dialog id="dialog"><form method="dialog"><button class="close" aria-label="关闭">×</button></form><div id="dialogBody"></div></dialog><div id="toast" role="status"></div>
+<script src="studio.js"></script></body></html>
