@@ -1,16 +1,347 @@
-// 长期项目（右栏「长期项目」区块）。占位实现，工单 T5（DSH）完成。
-// 数据：view.projects（ProjectView[]），写操作：createProject / updateProject / setProjectState / saveProjectLog。
-// 按钮用 data-project-* 属性并在 host 上自己监听；打开项目主任务的正文用 ctx.openTask(mainTaskId)。
+// 长期项目（右栏「长期项目」区块，解决跨多天的任务）。
+// 数据：view.projects（ProjectView[]）；写操作走 ModuleContext 的 command：
+// createProject / updateProject / setProjectState / saveProjectLog（见 architecture/workbench.d.ts）。
+// 按钮统一用 data-project-* 属性并在本模块内自己监听；唯一例外是「开始专注」沿用外壳约定的
+// data-action="start" data-focus-task="<主任务 id>"。打开项目主任务正文用 ctx.openTask(mainTaskId)。
+import { newId } from './api.js';
+import { esc } from './icons.js';
+
+/** 区块自己的状态：只记「哪个卡片的 ⋯ 菜单开着」，其余全部来自 view。 */
+const state = { openMenu: null };
+
+let host = null;
+let ctx = null;
+let bound = false;
 
 /**
- * @param {HTMLElement} host  #projects
- * @param {import('../../../architecture/workbench').ModuleContext} ctx
+ * @param {HTMLElement} hostEl  #projects
+ * @param {import('../../../architecture/workbench').ModuleContext} moduleCtx
  * @returns {{ render(view: import('../../../architecture/workbench').WorkbenchView): void }}
  */
-export function bindProjects(host, ctx) { // eslint-disable-line no-unused-vars
-  return {
-    render(view) {
-      host.hidden = !view.projects?.length;
-    },
-  };
+export function bindProjects(hostEl, moduleCtx) {
+  host = hostEl;
+  ctx = moduleCtx;
+  if (!bound) {
+    // 弹窗内容在 #dialogBody 里，不在 host 内，所以监听挂在 document 上，只处理自己的 data-project-*。
+    document.addEventListener('click', onClick);
+    document.addEventListener('submit', onSubmit);
+    document.addEventListener('change', onChange);
+    bound = true;
+  }
+  return { render };
+}
+
+// ---------------------------------------------------------------- 日期小工具
+
+const pad = (n) => String(n).padStart(2, '0');
+
+function toDay(date) {
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+}
+
+function addDays(day, delta) {
+  const [y, m, d] = day.split('-').map(Number);
+  return toDay(new Date(Date.UTC(y, m - 1, d + delta)));
+}
+
+function addMonths(day, delta) {
+  const [y, m, d] = day.split('-').map(Number);
+  return toDay(new Date(Date.UTC(y, m - 1 + delta, d)));
+}
+
+/** 快捷截止：1 周 / 2 周 / 1 个月都算「含开始当天」的整段，所以减一天。 */
+function quickDue(startDay, kind) {
+  if (kind === 'week') return addDays(startDay, 6);
+  if (kind === 'fortnight') return addDays(startDay, 13);
+  if (kind === 'month') return addDays(addMonths(startDay, 1), -1);
+  return '';
+}
+
+const minutesOf = (seconds) => Math.round(seconds / 60);
+
+function dayText(p) {
+  const index = `第 ${p.dayIndex}${p.totalDays ? `/${p.totalDays}` : ''} 天`;
+  if (p.daysLeft == null) return index;
+  return `${index} · ${p.daysLeft < 0 ? `逾期 ${-p.daysLeft} 天` : `剩 ${p.daysLeft} 天`}`;
+}
+
+// ---------------------------------------------------------------- 渲染
+
+function cardMarkup(p) {
+  const late = p.daysLeft != null && p.daysLeft < 0;
+  const target = p.dailyMinutes ? p.dailyMinutes * 60 : 0;
+  const pct = target ? Math.min(100, Math.round((p.focusSecondsOnDay / target) * 100)) : 0;
+  const focused = minutesOf(p.focusSecondsOnDay);
+  const note = p.log?.note || p.lastLog?.note || '';
+  const noteLead = p.log?.note ? '今天' : (p.lastLog ? '上次' : '');
+  const menuOpen = state.openMenu === p.id;
+  return `<article class="proj-card" data-project-card="${esc(p.id)}">
+    <div class="proj-head">
+      <b class="proj-name" title="${esc(p.title)}">${esc(p.title)}</b>
+      <small class="proj-days${late ? ' late' : ''}">${esc(dayText(p))}</small>
+    </div>
+    ${target ? `<div class="track proj-track"><i style="width:${pct}%"></i></div>` : '<div class="proj-track-empty"></div>'}
+    <p class="proj-meta">今天专注 ${focused} / ${p.dailyMinutes ? p.dailyMinutes : '—'} 分钟${p.dailyMinutes ? '' : '（未设每日目标）'}</p>
+    <p class="proj-note" title="${esc(note)}">${note ? `${esc(noteLead)}：${esc(note)}` : '还没有进展记录'}</p>
+    <div class="proj-actions">
+      <button type="button" class="primary proj-start" data-action="start" data-focus-task="${esc(p.mainTaskId)}">开始专注</button>
+      <button type="button" class="light" data-project-note="${esc(p.id)}">写正文</button>
+      <button type="button" class="iconbtn proj-more" data-project-menu="${esc(p.id)}"
+        aria-haspopup="menu" aria-expanded="${menuOpen ? 'true' : 'false'}" aria-label="${esc(p.title)} 的更多操作">⋯</button>
+    </div>
+    <div class="proj-menu" role="menu" data-project-menu-for="${esc(p.id)}"${menuOpen ? '' : ' hidden'}>
+      <button type="button" role="menuitem" data-project-edit="${esc(p.id)}">编辑</button>
+      <button type="button" role="menuitem" data-project-complete="${esc(p.id)}">完成项目</button>
+      <button type="button" role="menuitem" data-project-archive="${esc(p.id)}">归档</button>
+    </div>
+  </article>`;
+}
+
+function doneMarkup(list) {
+  if (!list.length) return '';
+  return `<p class="proj-donelist">今天完成：${list.map((p) => `${esc(p.title)}
+    <button type="button" class="link" data-project-reopen="${esc(p.id)}">重开</button>`).join('、')}</p>`;
+}
+
+function render(view) {
+  if (!host) return;
+  host.hidden = false; // 没有项目时也保留区块：空态要引导用户建第一个
+  const all = view.projects ?? [];
+  const active = all.filter((p) => !p.completedAt);
+  const done = all.filter((p) => p.completedAt);
+  const head = `<div class="section-head proj-head-bar">
+    <h2>长期项目</h2>
+    <span class="count" aria-label="长期项目数量">${active.length}</span>
+    <button type="button" class="iconbtn ghost proj-add" data-project-new title="新建长期项目" aria-label="新建长期项目">＋</button>
+  </div>`;
+  if (!active.length && !done.length) {
+    host.innerHTML = `${head}<p class="proj-empty">连续多天的事，建成长期项目。</p>
+      <button type="button" class="light proj-emptybtn" data-project-new>新建长期项目</button>`;
+    return;
+  }
+  host.innerHTML = `${head}<div class="proj-list">${active.map((p) => cardMarkup(p)).join('')}</div>${doneMarkup(done)}`;
+}
+
+// ---------------------------------------------------------------- 弹窗
+
+function findProject(id) {
+  return (ctx.state.view.projects ?? []).find((p) => p.id === id) ?? null;
+}
+
+function formMarkup({ project = null, day }) {
+  const start = project?.startDay ?? day;
+  const due = project?.dueDay ?? '';
+  const daily = project?.dailyMinutes ?? '';
+  const title = project ? '编辑长期项目' : '新建长期项目';
+  return `<h2 class="dialoghead">${title}</h2>
+    <p class="soft">连续多天的事：建一个项目，它的主任务会出现在左栏待办里，可以直接拖进日计划。</p>
+    <form class="proj-form" data-project-form="${project ? esc(project.id) : 'new'}" novalidate>
+      <label class="proj-field">名称
+        <input type="text" id="projTitle" maxlength="120" autocomplete="off"
+          placeholder="例如：写完毕业论文初稿" value="${esc(project?.title ?? '')}">
+      </label>
+      <label class="proj-field">目标（可选）
+        <input type="text" id="projGoal" maxlength="500" autocomplete="off"
+          placeholder="做到什么算完成" value="${esc(project?.goal ?? '')}">
+      </label>
+      <div class="proj-formrow">
+        <label class="proj-field">开始日期
+          <input type="date" id="projStart" value="${esc(start)}">
+        </label>
+        <label class="proj-field">截止（可空）
+          <input type="date" id="projDue" value="${esc(due)}">
+        </label>
+      </div>
+      <div class="proj-quick">
+        <button type="button" class="chip" data-project-due="week">1 周</button>
+        <button type="button" class="chip" data-project-due="fortnight">2 周</button>
+        <button type="button" class="chip" data-project-due="month">1 个月</button>
+        <button type="button" class="chip" data-project-due="none">无截止</button>
+      </div>
+      <div class="proj-formrow">
+        <label class="proj-field">每天投入（分钟，可空）
+          <input type="number" id="projDaily" min="1" max="720" step="1" inputmode="numeric" placeholder="不设"
+            value="${esc(daily === '' ? '' : daily)}">
+        </label>
+        <div class="proj-quick proj-quick-daily">
+          ${[30, 60, 90].map((m) => `<button type="button" class="chip" data-project-daily="${m}">${m}</button>`).join('')}
+        </div>
+      </div>
+      <p class="proj-formerror" data-project-error role="alert" hidden></p>
+      <div class="dialogactions">
+        <button type="button" class="light" data-project-cancel>取消</button>
+        <button type="submit" class="primary" data-project-submit>${project ? '保存' : '创建'}</button>
+      </div>
+    </form>`;
+}
+
+function openForm(project = null) {
+  ctx.modal(formMarkup({ project, day: ctx.state.view.day }));
+  const input = document.querySelector('#projTitle');
+  input?.focus();
+  input?.select();
+}
+
+function openConfirm(project, action) {
+  const label = action === 'complete' ? '完成项目' : '归档';
+  const hint = action === 'complete'
+    ? '主任务会一起标记完成，之后仍在「每日维护」里可回看。'
+    : '归档后不再出现在右栏，历史记录仍保留。';
+  ctx.modal(`<h2 class="dialoghead">${label}「${esc(project.title)}」？</h2>
+    <p class="soft">${hint}</p>
+    <div class="dialogactions">
+      <button type="button" class="light" data-project-cancel>取消</button>
+      <button type="button" class="primary" data-project-confirm="${action}:${esc(project.id)}">${label}</button>
+    </div>`);
+}
+
+function formError(message) {
+  const el = document.querySelector('[data-project-error]');
+  if (!el) { ctx.notify(message, 'bad'); return; }
+  el.hidden = false;
+  el.textContent = message;
+}
+
+// ---------------------------------------------------------------- 写操作
+
+async function createFrom(form) {
+  const title = form.querySelector('#projTitle').value.trim();
+  if (!title) { formError('请填写项目名称'); form.querySelector('#projTitle').focus(); return; }
+  const startDay = form.querySelector('#projStart').value || ctx.state.view.day;
+  const dueDay = form.querySelector('#projDue').value || null;
+  const dailyRaw = form.querySelector('#projDaily').value.trim();
+  const dailyMinutes = dailyRaw ? Number(dailyRaw) : null;
+  if (dueDay && dueDay < startDay) { formError('截止日期应不早于开始日期'); return; }
+  if (dailyMinutes != null && (!Number.isFinite(dailyMinutes) || dailyMinutes < 1)) {
+    formError('每天投入应是大于 0 的分钟数'); return;
+  }
+  const id = newId('proj');
+  const ok = await ctx.run(() => ctx.api.command({
+    type: 'createProject',
+    id,
+    title,
+    goal: form.querySelector('#projGoal').value.trim(),
+    startDay,
+    dueDay,
+    dailyMinutes,
+    mainTaskId: `${id}-main`,
+  }), '长期项目已创建');
+  if (ok) { ctx.closeDialog(); state.openMenu = null; }
+}
+
+async function updateFrom(form, projectId) {
+  const project = findProject(projectId);
+  if (!project) { formError('项目已不存在，请刷新'); return; }
+  const title = form.querySelector('#projTitle').value.trim();
+  if (!title) { formError('请填写项目名称'); return; }
+  const startDay = form.querySelector('#projStart').value || project.startDay;
+  const dueRaw = form.querySelector('#projDue').value;
+  const dueDay = dueRaw || null;
+  const dailyRaw = form.querySelector('#projDaily').value.trim();
+  const dailyMinutes = dailyRaw ? Number(dailyRaw) : null;
+  if (dueDay && dueDay < startDay) { formError('截止日期应不早于开始日期'); return; }
+  if (dailyMinutes != null && (!Number.isFinite(dailyMinutes) || dailyMinutes < 1)) {
+    formError('每天投入应是大于 0 的分钟数'); return;
+  }
+  const ok = await ctx.run(() => ctx.api.command({
+    type: 'updateProject',
+    projectId,
+    title,
+    goal: form.querySelector('#projGoal').value.trim(),
+    startDay,
+    dueDay,
+    dailyMinutes,
+  }), '项目已更新');
+  if (ok) { ctx.closeDialog(); state.openMenu = null; }
+}
+
+async function setState(projectId, action, success) {
+  const ok = await ctx.run(() => ctx.api.command({ type: 'setProjectState', projectId, action }), success);
+  if (ok) { ctx.closeDialog(); state.openMenu = null; }
+}
+
+// ---------------------------------------------------------------- 事件
+
+function onClick(event) {
+  const el = event.target instanceof Element ? event.target.closest('button') : null;
+  if (!el) return;
+  const d = el.dataset;
+  // 只处理本模块的按钮；「开始专注」交给外壳的 data-action 分派。
+  const mine = ['projectNew', 'projectNote', 'projectMenu', 'projectEdit', 'projectComplete',
+    'projectArchive', 'projectReopen', 'projectCancel', 'projectConfirm', 'projectDue', 'projectDaily'];
+  const key = mine.find((name) => d[name] != null);
+  if (!key) return;
+
+  if (key === 'projectNew') { state.openMenu = null; openForm(); return; }
+  if (key === 'projectCancel') { ctx.closeDialog(); return; }
+  if (key === 'projectNote') {
+    const project = findProject(d.projectNote);
+    if (project) { state.openMenu = null; ctx.openTask(project.mainTaskId); }
+    return;
+  }
+  if (key === 'projectMenu') {
+    state.openMenu = state.openMenu === d.projectMenu ? null : d.projectMenu;
+    render(ctx.state.view);
+    return;
+  }
+  if (key === 'projectEdit') {
+    const project = findProject(d.projectEdit);
+    if (project) { state.openMenu = null; openForm(project); }
+    return;
+  }
+  if (key === 'projectComplete' || key === 'projectArchive') {
+    const project = findProject(d[key === 'projectComplete' ? 'projectComplete' : 'projectArchive']);
+    if (!project) return;
+    state.openMenu = null;
+    render(ctx.state.view);
+    openConfirm(project, key === 'projectComplete' ? 'complete' : 'archive');
+    return;
+  }
+  if (key === 'projectReopen') {
+    void setState(d.projectReopen, 'reopen', '项目已重开');
+    return;
+  }
+  if (key === 'projectConfirm') {
+    const [action, projectId] = String(d.projectConfirm).split(':');
+    if (!projectId) return;
+    const success = action === 'complete' ? '项目已完成' : '项目已归档';
+    void setState(projectId, action, success);
+    return;
+  }
+  if (key === 'projectDue') {
+    const form = document.querySelector('[data-project-form]');
+    if (!form) return;
+    const start = form.querySelector('#projStart').value || ctx.state.view.day;
+    const input = form.querySelector('#projDue');
+    input.value = d.projectDue === 'none' ? '' : quickDue(start, d.projectDue);
+    for (const chip of form.querySelectorAll('[data-project-due]')) {
+      chip.setAttribute('aria-pressed', String(chip === el));
+    }
+    return;
+  }
+  if (key === 'projectDaily') {
+    const form = document.querySelector('[data-project-form]');
+    if (!form) return;
+    form.querySelector('#projDaily').value = d.projectDaily;
+    for (const chip of form.querySelectorAll('[data-project-daily]')) {
+      chip.setAttribute('aria-pressed', String(chip === el));
+    }
+  }
+}
+
+function onSubmit(event) {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement) || form.dataset.projectForm == null) return;
+  event.preventDefault();
+  if (form.dataset.projectForm === 'new') void createFrom(form);
+  else void updateFrom(form, form.dataset.projectForm);
+}
+
+/** 开始日期变了，快捷截止按钮的选中态就不可信了，清掉免得误导。 */
+function onChange(event) {
+  const el = event.target;
+  if (!(el instanceof Element) || el.id !== 'projStart') return;
+  const form = el.closest('[data-project-form]');
+  if (!form) return;
+  for (const chip of form.querySelectorAll('[data-project-due]')) chip.setAttribute('aria-pressed', 'false');
 }

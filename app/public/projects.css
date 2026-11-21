@@ -1,1 +1,65 @@
-/* 长期项目（js/projects.js，右栏 #projects）。只引用令牌，不写颜色值。工单 T5（DSH）。 */
+/* 长期项目（js/projects.js，右栏 #projects）。只引用 tokens.css 的令牌，不写颜色值。
+   右栏很窄（214–268px），卡片一律单列、不设固定宽度；窄屏下右栏变成整宽卡片，仍能看。 */
+
+.right-projects{margin-top:22px;min-width:0}
+.proj-head-bar{justify-content:flex-start;gap:8px;margin-bottom:9px}
+.proj-head-bar h2{font-size:15px}
+.proj-head-bar .count{flex:none}
+.proj-add{margin-left:auto;width:24px;height:24px;font-size:15px;line-height:1}
+
+.proj-list{display:grid;gap:9px;min-width:0}
+.proj-card{
+  position:relative;min-width:0;padding:11px 12px;border-radius:var(--radius-m);
+  background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow-1);
+}
+.proj-head{display:flex;align-items:baseline;gap:8px;min-width:0}
+.proj-name{flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--ink-2);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proj-days{flex:none;font:11px var(--small-text);color:var(--muted);font-variant-numeric:tabular-nums}
+.proj-days.late{color:var(--danger);font-weight:600}
+.proj-track{margin-top:7px}
+.proj-track-empty{margin-top:7px;height:5px;border-radius:3px;background:var(--track);opacity:.5}
+.proj-meta{margin:5px 0 0;font:11.5px/1.4 var(--small-text);color:var(--muted)}
+.proj-note{margin:3px 0 0;font:11.5px/1.45 var(--small-text);color:var(--faint);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proj-actions{display:flex;align-items:center;gap:6px;margin-top:9px;flex-wrap:wrap}
+.proj-actions .primary{padding:5px 11px;font-size:12px}
+.proj-actions .light{padding:5px 10px;font-size:12px}
+.proj-more{flex:none;width:26px;height:26px;font-size:15px;line-height:1}
+
+.proj-menu{
+  display:grid;gap:2px;margin-top:7px;padding:5px;border-radius:var(--radius-s);
+  background:var(--surface-2);border:1px solid var(--line);
+}
+.proj-menu button{display:block;width:100%;padding:6px 9px;border-radius:var(--radius-xs);
+  text-align:left;font-size:12.5px;color:var(--ink-2)}
+.proj-menu button:hover{background:var(--surface-3);color:var(--accent-ink)}
+
+.proj-donelist{margin:9px 0 0;font:11.5px/1.6 var(--small-text);color:var(--muted);overflow-wrap:anywhere}
+.proj-donelist .link{margin-left:3px;font-size:11.5px}
+
+.proj-empty{margin:0;font:12px/1.6 var(--small-text);color:var(--muted)}
+.proj-emptybtn{margin-top:8px}
+
+/* ------------------------------------------------------------ 弹窗表单 */
+.proj-form{display:grid;gap:10px;margin-top:14px}
+.proj-field{display:grid;gap:5px;font-size:12.5px;color:var(--muted);min-width:0}
+.proj-field input{width:100%;min-width:0;padding:7px 10px;border:1px solid var(--line-strong);
+  border-radius:var(--radius-s);background:var(--surface-2);color:var(--ink);font-size:13px}
+.proj-field input:focus{outline:0;border-color:var(--accent-line);box-shadow:0 0 0 3px var(--ring-soft)}
+.proj-formrow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.proj-quick{display:flex;flex-wrap:wrap;gap:6px}
+.proj-quick .chip{padding:4px 11px;font-size:12px}
+.proj-quick-daily{align-self:end;padding-bottom:2px}
+.proj-formerror{margin:0;padding:7px 10px;border-radius:var(--radius-s);background:var(--danger-soft);
+  border:1px solid var(--danger-line);color:var(--danger);font-size:12px;overflow-wrap:anywhere}
+.proj-form .dialogactions{margin-top:4px}
+
+@media(max-width:830px){
+  /* 窄屏下右栏整宽：项目卡可以并排成两列 */
+  .proj-list{grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+}
+@media(max-width:440px){
+  .proj-formrow{grid-template-columns:1fr}
+  .proj-list{grid-template-columns:1fr}
+}
