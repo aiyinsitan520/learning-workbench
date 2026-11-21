@@ -15,6 +15,7 @@ const paths = {
   play: 'M7 4l12 8-12 8z',
   pause: 'M8 4h3v16H8z M13 4h3v16h-3z',
   edit: 'M4 16L16 4l4 4L8 20l-5 1z M13 7l4 4',
+  gear: 'M12 9a3 3 0 1 0 .1 0 M12 2v3 M12 19v3 M2 12h3 M19 12h3 M4.9 4.9l2.1 2.1 M17 17l2.1 2.1 M4.9 19.1L7 17 M17 7l2.1-2.1',
   bulb: 'M9 16c0-3-4-4-4-8a7 7 0 0 1 14 0c0 4-4 5-4 8z M9 19h6 M10 22h4',
   clock: 'M12 3a9 9 0 1 0 .1 0 M12 7v6l4 2',
   trash: 'M4 7h16 M9 7V4h6v3 M6 7l1 14h10l1-14',

@@ -8,6 +8,9 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase, WorkbenchError, SCHEMA_PATH } from './lib/db.js';
 import { isValidDate, localDateOf, nowSeconds } from './lib/time.js';
+import { dayDigest, factsHash, yesterdayOf, contextSnapshot } from './lib/digest.js';
+import { contextMarkdown } from './lib/context-md.js';
+import { handleAiRoute } from './lib/ai-routes.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(HERE, 'public');
@@ -26,10 +29,14 @@ const MIME = {
 };
 
 const BODY_LIMIT = 512 * 1024;
-const BACKUP_TABLES = ['tasks', 'schedule_blocks', 'focus_sessions', 'day_notes', 'note_blocks', 'task_notes'];
+// 顺序即导入顺序：被引用的表在前。AI 密钥不在库里（app/data/ai-providers.json），不会被导出。
+const BACKUP_TABLES = ['projects', 'tasks', 'schedule_blocks', 'focus_sessions', 'day_notes', 'note_blocks',
+  'task_notes', 'project_logs', 'daily_reviews'];
 
-export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root = HERE } = {}) {
+export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root = HERE, aiConfigPath, fetchImpl } = {}) {
   const workbench = openDatabase(dbPath, { timeZone });
+  // AI 模型配置文件默认放在数据库旁边；测试可传 fetchImpl 换掉真实网络请求。
+  const ai = { configPath: aiConfigPath ?? (dbPath && dbPath !== ':memory:' ? join(dirname(dbPath), 'ai-providers.json') : null), fetch: fetchImpl ?? fetch };
   const publicDir = join(root, 'public');
   const projectDir = join(root, '..');
 
@@ -37,7 +44,7 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     try {
       if (url.pathname.startsWith('/api/')) {
-        await handleApi(workbench, req, res, url, publicDir);
+        await handleApi(workbench, req, res, url, publicDir, ai);
         return;
       }
       await serveStatic(req, res, url.pathname, publicDir, projectDir);
@@ -76,11 +83,44 @@ async function publicBuild(dir) {
   return buildCache.value;
 }
 
-async function handleApi(wb, req, res, url, publicDir) {
+async function handleApi(wb, req, res, url, publicDir, ai) {
   const route = `${req.method} ${url.pathname}`;
   try {
     const body = req.method === 'POST' ? await readJson(req) : null;
+    // 模型接入（CC Switch 式的供应商管理）与 AI 回顾：见 app/lib/ai-routes.js
+    if (url.pathname.startsWith('/api/ai/')) {
+      const payload = await handleAiRoute(route, { wb, body, url, ai });
+      sendJson(res, 200, { ok: true, ...payload });
+      return;
+    }
     switch (route) {
+      case 'GET /api/review': {
+        // 每日维护看板：某天（默认昨天）的摘要 + 已存的 AI 回顾（stale 表示记录在回顾之后又改过）
+        const day = url.searchParams.get('day') || yesterdayOf(wb);
+        if (!isValidDate(day)) throw new WorkbenchError('invalid', '日期格式应为 YYYY-MM-DD');
+        const digest = dayDigest(wb, day);
+        const hash = factsHash(digest);
+        const saved = wb.readDailyReview(day);
+        const review = saved ? { ...saved, stale: saved.factsHash !== hash } : null;
+        sendJson(res, 200, { ok: true, digest, factsHash: hash, review, today: localDateOf(nowSeconds(), wb.timeZone) });
+        return;
+      }
+      case 'GET /api/context': {
+        // 给外部 AI 读的数据快照：?days=14&end=YYYY-MM-DD&notes=1&format=json|md
+        const end = url.searchParams.get('end') || undefined;
+        if (end && !isValidDate(end)) throw new WorkbenchError('invalid', 'end 日期格式应为 YYYY-MM-DD');
+        const snapshot = contextSnapshot(wb, {
+          endDay: end, days: Number(url.searchParams.get('days') || 14), includeNotes: url.searchParams.get('notes') === '1',
+        });
+        if (url.searchParams.get('format') === 'md') {
+          const text = contextMarkdown(snapshot);
+          res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'cache-control': 'no-store' });
+          res.end(text);
+          return;
+        }
+        sendJson(res, 200, { ok: true, ...snapshot });
+        return;
+      }
       case 'GET /api/view': {
         const day = url.searchParams.get('day') || localDateOf(nowSeconds(), wb.timeZone);
         const tz = url.searchParams.get('tz') || wb.timeZone;
@@ -206,6 +246,7 @@ export function execute(wb, command) {
         title: command.title,
         course: command.course,
         estimatedSeconds: command.estimatedSeconds,
+        projectId: command.projectId ?? null,
       });
     case 'setTaskCompleted':
       return wb.setTaskCompleted({ taskId: command.taskId, completed: command.completed });
@@ -229,6 +270,22 @@ export function execute(wb, command) {
       return wb.saveDayNote({ note: command.note, expectedRevision: command.expectedRevision ?? null });
     case 'saveTaskNote':
       return wb.saveTaskNote(command.taskId, command.body, command.expectedRevision);
+    case 'createProject':
+      return wb.createProject({
+        id: command.id, title: command.title, goal: command.goal, startDay: command.startDay,
+        dueDay: command.dueDay ?? null, dailyMinutes: command.dailyMinutes ?? null, mainTaskId: command.mainTaskId,
+      });
+    case 'updateProject':
+      return wb.updateProject({
+        projectId: command.projectId, title: command.title, goal: command.goal,
+        startDay: command.startDay, dueDay: command.dueDay, dailyMinutes: command.dailyMinutes,
+      });
+    case 'setProjectState':
+      return wb.setProjectState({ projectId: command.projectId, action: command.action });
+    case 'saveProjectLog':
+      return wb.saveProjectLog({
+        projectId: command.projectId, day: command.day, note: command.note, progress: command.progress ?? null,
+      });
     default:
       throw new WorkbenchError('invalid', `未知命令：${type}`);
   }
@@ -310,8 +367,8 @@ async function serveStatic(req, res, pathname, publicDir, projectDir) {
 
 // ------------------------------------------------------------------ 入口
 
-export async function start({ port = 0, host = '127.0.0.1', dbPath, timeZone, root } = {}) {
-  const { server, workbench } = createWorkbenchServer({ dbPath, timeZone, root });
+export async function start({ port = 0, host = '127.0.0.1', dbPath, timeZone, root, aiConfigPath, fetchImpl } = {}) {
+  const { server, workbench } = createWorkbenchServer({ dbPath, timeZone, root, aiConfigPath, fetchImpl });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, resolve);

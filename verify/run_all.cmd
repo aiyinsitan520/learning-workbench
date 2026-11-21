@@ -21,7 +21,7 @@ echo ===== Behavior regression (temp db) =====
 node verify\check_behavior.mjs || set FAILED=1
 echo.
 echo ===== Repository + server tests =====
-node --test app\test\workbench.test.js app\test\server.test.js || set FAILED=1
+node --test app\test\workbench.test.js app\test\server.test.js app\test\v2.test.js || set FAILED=1
 
 if /i "%~1"=="full" (
   echo.

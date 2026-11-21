@@ -2,15 +2,17 @@
 // 画面部件分在 nav.js（工具条）、focus.js（灵动岛 / 管家）、dialogs.js（弹窗）、
 // planner.js（日计划）、task-notes.js（任务正文）、views.js（各页 HTML）。
 import { api, ApiError, newId } from './api.js';
-import { $, learnZone, localToday, notify, closeDialog, prefs, prefersReducedMotion } from './dom.js';
+import { $, learnZone, localToday, notify, modal, closeDialog, prefs, prefersReducedMotion } from './dom.js';
 import { hydrateIcons } from './icons.js';
 import { bindPlanner, DEFAULT_PLAN_SECONDS } from './planner.js';
 import { bindTaskNotes } from './task-notes.js';
-import { showYesterday } from './review.js';
 import { bindToolbar } from './nav.js';
 import { bindFocusChrome, remainingSeconds } from './focus.js';
 import { createDialogs } from './dialogs.js';
 import { bindSkins } from './skins.js';
+import { showBoard } from './board.js';
+import { showAiSettings } from './ai-settings.js';
+import { bindProjects } from './projects.js';
 import {
   PAGES, LEGACY_PAGES, activityPage, calendarPage, focusPage, mmss, renderDone,
   renderPending, renderProgress, renderRail, taskTitle, todoTasks, weekdayOf, PLAN_COURSE,
@@ -123,6 +125,7 @@ function drawSidebar(editorTaskId) {
     pendingMarkup = nextPending;
   }
   planner.render(view);
+  projects.render(view);
   $('#railList').innerHTML = renderRail(state);
 }
 
@@ -142,8 +145,13 @@ function drawMain(editorTask) {
     return;
   }
   taskNotes.leave();
+  // 每日维护看板与模型接入页自己管理内容和刷新，只在进入时调用一次
   if (state.page === 'review') {
-    showYesterday($('#mainContent'));
+    showBoard($('#mainContent'), moduleCtx);
+    return;
+  }
+  if (state.page === 'ai') {
+    showAiSettings($('#mainContent'), moduleCtx);
     return;
   }
   const body = { calendar: calendarPage, focus: focusPage, activity: activityPage }[state.page](state);
@@ -553,6 +561,17 @@ const planner = bindPlanner({
 });
 const dialogs = createDialogs({ state, findTask, renameTask, saveBlock, createTaskBlock, planner });
 const focusChrome = bindFocusChrome({ state, commands, taskName });
+/**
+ * 新功能模块（board / ai-settings / projects）拿到的上下文。它们只通过这里访问外壳，
+ * 不直接 import app.js。约定见 architecture/workbench.d.ts 的 ModuleContext。
+ */
+const moduleCtx = {
+  api, state, notify, modal, closeDialog,
+  reload, gotoPage,
+  run: (fn, success) => run(fn, { success }),
+  openTask: (taskId) => openTaskEditor(taskId),
+};
+const projects = bindProjects($('#projects'), moduleCtx);
 
 hydrateIcons();
 if (prefs.get(FOLD_KEY) === '1') setFold(true);

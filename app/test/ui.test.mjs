@@ -286,7 +286,7 @@ test('顶栏分组工具条：五页切换，选中底板跟随，右栏概况�
   await page.click('#tools [data-page="home"]');
   await page.waitFor('document.querySelector("#taskEditor")');
   assert.deepEqual(await page.evaluate('return [...document.querySelectorAll("header #tools .tool")].map(b => b.textContent.trim());'),
-    ['今日', '日历', '专注', '统计', '昨日']);
+    ['今日', '日历', '专注', '统计', '维护']);
   const pillOn = (key) => `(() => {
     const pill = document.querySelector('#tools .toolbar-pill').getBoundingClientRect();
     const btn = document.querySelector('#tools [data-page="${key}"]').getBoundingClientRect();
@@ -483,7 +483,7 @@ test('键盘快捷键：1-5 切页、N 新建、空格开关专注', async () =>
     + ' return true;',
   );
 
-  const pairs = [['2', '日历'], ['4', '学习统计'], ['5', '昨日总结'], ['3', '专注'], ['1', '今日工作台']];
+  const pairs = [['2', '日历'], ['4', '学习统计'], ['5', '每日维护'], ['3', '专注'], ['1', '今日工作台']];
   for (const [key, title] of pairs) {
     await press(key);
     await page.waitFor(`document.querySelector('#contextPage')?.textContent === ${JSON.stringify(title)}`);
@@ -929,7 +929,7 @@ test('「改时区」扩展篡改 Intl 时，日计划仍按北京时间显示�
 
 test('皮肤：六套可切换，颜色真的变，刷新后记住；样式表里不写死颜色', async () => {
   // 组件样式只能引用令牌，换皮肤才会整页跟着变
-  for (const file of ['app.css', 'planner.css', 'review.css']) {
+  for (const file of ['app.css', 'planner.css', 'review.css', 'board.css', 'projects.css', 'ai.css']) {
     const css = readFileSync(new URL(`../public/${file}`, import.meta.url), 'utf8');
     assert.deepEqual(css.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g) ?? [], [], `${file} 里有写死的颜色，请改用 tokens.css 的令牌`);
   }

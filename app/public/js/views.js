@@ -9,7 +9,8 @@ export const PAGES = {
   calendar: '日历',
   focus: '专注',
   activity: '学习统计',
-  review: '昨日总结',
+  review: '每日维护',
+  ai: '模型接入', // 不进顶栏，由顶栏右侧的齿轮按钮进入
 };
 
 /** 工具条上的短名；完整名放在 title 与面包屑里。 */
@@ -18,7 +19,7 @@ export const NAV_LABELS = {
   calendar: '日历',
   focus: '专注',
   activity: '统计',
-  review: '昨日',
+  review: '维护',
 };
 
 // 旧路由兼容：外部链接仍可能带这些名字，统一回到任务正文所在的首页。
@@ -87,7 +88,7 @@ export function renderPending(state, activeTaskId) {
 
 /** 顶栏分组工具条：一组按钮共用一块滑动选中底板。 */
 export function renderTools() {
-  return '<span class="toolbar-pill" aria-hidden="true"></span>' + Object.keys(PAGES).map((key) => `
+  return '<span class="toolbar-pill" aria-hidden="true"></span>' + Object.keys(NAV_LABELS).map((key) => `
     <button type="button" class="tool" data-page="${key}" aria-pressed="false" title="${PAGES[key]}">${icon(key)}<span>${NAV_LABELS[key]}</span></button>`).join('');
 }
 

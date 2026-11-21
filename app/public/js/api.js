@@ -32,6 +32,11 @@ export const api = {
   },
   month: (month) => request(`/api/month?month=${encodeURIComponent(month)}`),
   taskNote: (taskId) => request(`/api/task-note?task=${encodeURIComponent(taskId)}`),
+  /** 通用读写：新接口（/api/review、/api/context、/api/ai/*）用这两个，不必再改本文件。 */
+  get: (path) => request(path),
+  post: (path, body) => request(path, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}),
+  }),
   command: (command, { keepalive = false } = {}) => request('/api/command', {
     method: 'POST',
     keepalive,

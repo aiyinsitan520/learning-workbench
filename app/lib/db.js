@@ -2,7 +2,7 @@
 // 只用 Node 内置 node:sqlite，零第三方依赖。
 
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dayRange, isValidDate, localDateOf, nowSeconds } from './time.js';
@@ -10,7 +10,11 @@ import { dayRange, isValidDate, localDateOf, nowSeconds } from './time.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const SCHEMA_PATH = join(HERE, '..', '..', 'architecture', 'schema.sql');
 
-const SCHEMA_VERSION = 1;
+export const MIGRATIONS_DIR = join(HERE, '..', '..', 'architecture', 'migrations');
+
+// v1 = schema.sql；之后每一版是 migrations/00N_*.sql，文件自己写 PRAGMA user_version = N。
+const SCHEMA_VERSION = 2;
+export const PROJECT_COURSE = '长期项目';
 const MAX_TEXT = 4000;
 const MAX_TASK_NOTE = 32000;
 
@@ -42,9 +46,10 @@ export function openDatabase(path, { timeZone = 'Asia/Shanghai', now = nowSecond
     const version = Number(db.prepare('PRAGMA user_version').get().user_version ?? 0);
     if (version === 0) {
       db.exec(readFileSync(SCHEMA_PATH, 'utf8'));
-    } else if (version !== SCHEMA_VERSION) {
-      throw new WorkbenchError('storage', `数据库版本 ${version} 与程序期望的 ${SCHEMA_VERSION} 不一致`);
+    } else if (version > SCHEMA_VERSION) {
+      throw new WorkbenchError('storage', `数据库版本 ${version} 比程序期望的 ${SCHEMA_VERSION} 新，请升级程序`);
     }
+    migrate(db, path);
     if (Number(db.prepare('PRAGMA foreign_keys').get().foreign_keys) !== 1) {
       throw new WorkbenchError('storage', '无法开启外键约束');
     }
@@ -58,6 +63,38 @@ export function openDatabase(path, { timeZone = 'Asia/Shanghai', now = nowSecond
     throw err;
   }
   return new Workbench(db, { timeZone, now });
+}
+
+/**
+ * 把库升级到 SCHEMA_VERSION。文件库在第一次迁移前先用 VACUUM INTO 另存一份
+ * <库名>.bak-v<旧版本>-<时间>，迁移本身在一个事务里，失败整体回滚。
+ */
+function migrate(db, path) {
+  let version = Number(db.prepare('PRAGMA user_version').get().user_version ?? 0);
+  if (version >= SCHEMA_VERSION) return;
+  const files = readdirSync(MIGRATIONS_DIR).filter((f) => /^\d{3}_.+\.sql$/.test(f)).sort();
+  if (path !== ':memory:' && existsSync(path)) {
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15);
+    db.prepare('VACUUM INTO ?').run(`${path}.bak-v${version}-${stamp}`);
+  }
+  for (const file of files) {
+    const target = Number(file.slice(0, 3));
+    if (target <= version) continue;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
+      const now = Number(db.prepare('PRAGMA user_version').get().user_version);
+      if (now !== target) throw new Error(`${file} 没有把 user_version 设为 ${target}`);
+      db.exec('COMMIT');
+      version = target;
+    } catch (err) {
+      try { db.exec('ROLLBACK'); } catch { /* 已回滚 */ }
+      throw new WorkbenchError('storage', `数据库迁移 ${file} 失败：${err.message}`);
+    }
+  }
+  if (version !== SCHEMA_VERSION) {
+    throw new WorkbenchError('storage', `迁移后版本 ${version} 与程序期望的 ${SCHEMA_VERSION} 不一致`);
+  }
 }
 
 // ------------------------------------------------------------------ 事务
@@ -136,18 +173,18 @@ class Workbench {
     if (!isValidDate(day)) throw invalid(`日期格式应为 YYYY-MM-DD：${day}`);
     const { start, end } = dayRange(day, timeZone);
     const pending = this.#all(
-      'SELECT id, title, course, estimated_seconds, completed_at FROM tasks'
+      'SELECT id, title, course, estimated_seconds, completed_at, project_id FROM tasks'
         + ' WHERE completed_at IS NULL ORDER BY created_at, id',
     ).map(mapTask);
     const completedOnDay = this.#all(
-      'SELECT id, title, course, estimated_seconds, completed_at FROM tasks'
+      'SELECT id, title, course, estimated_seconds, completed_at, project_id FROM tasks'
         + ' WHERE completed_at >= ? AND completed_at < ? ORDER BY completed_at DESC, id',
       start,
       end,
     ).map(mapTask);
     const scheduled = this.#all(
       'SELECT b.id AS block_id, b.task_id, b.starts_at, b.planned_seconds,'
-        + ' t.id, t.title, t.course, t.estimated_seconds, t.completed_at'
+        + ' t.id, t.title, t.course, t.estimated_seconds, t.completed_at, t.project_id'
         + ' FROM schedule_blocks b JOIN tasks t ON t.id = b.task_id'
         + ' WHERE b.starts_at >= ? AND b.starts_at < ?'
         + ' ORDER BY b.starts_at, b.id',
@@ -180,7 +217,186 @@ class Workbench {
       note,
       openFocus: openRow ? mapFocus(openRow) : null,
       focusSummary: { finishedSessions: Number(summary.sessions), elapsedSeconds: Number(summary.seconds) },
+      projects: this.readProjects(day, timeZone),
     };
+  }
+
+  // ---------------------------------------------------------------- 长期项目
+
+  /**
+   * 某天「在进行」的长期项目：已开始、未归档；当天或之后才完成的也算（回看历史时不丢）。
+   * 统计全部来自已结束的专注（state='finished'），口径和 focusSummary 一致。
+   */
+  readProjects(day, timeZone = this.timeZone) {
+    if (!isValidDate(day)) throw invalid(`日期格式应为 YYYY-MM-DD：${day}`);
+    const { start, end } = dayRange(day, timeZone);
+    const rows = this.#all(
+      'SELECT * FROM projects WHERE archived_at IS NULL AND start_day <= ?'
+        + ' AND (completed_at IS NULL OR completed_at >= ?) ORDER BY COALESCE(due_day, \'9999\'), created_at, id',
+      day, start,
+    );
+    return rows.map((p) => {
+      const focus = this.#one(
+        "SELECT COALESCE(SUM(f.elapsed_seconds),0) AS total,"
+          + " COALESCE(SUM(CASE WHEN f.started_at >= ? AND f.started_at < ? THEN f.elapsed_seconds END),0) AS onDay"
+          + " FROM focus_sessions f JOIN tasks t ON t.id = f.task_id"
+          + " WHERE t.project_id = ? AND f.state = 'finished' AND f.started_at < ?",
+        start, end, p.id, end,
+      );
+      const tasks = this.#one(
+        'SELECT COUNT(*) AS n, COUNT(completed_at) AS done FROM tasks WHERE project_id = ? AND id <> ?',
+        p.id, p.main_task_id,
+      );
+      const log = this.#one('SELECT * FROM project_logs WHERE project_id = ? AND day = ?', p.id, day);
+      const last = this.#one(
+        'SELECT * FROM project_logs WHERE project_id = ? AND day < ? ORDER BY day DESC LIMIT 1', p.id, day,
+      );
+      return {
+        ...mapProject(p),
+        dayIndex: daysBetween(p.start_day, day) + 1,
+        totalDays: p.due_day ? daysBetween(p.start_day, p.due_day) + 1 : null,
+        daysLeft: p.due_day ? daysBetween(day, p.due_day) : null,
+        focusSecondsOnDay: Number(focus.onDay),
+        focusSecondsTotal: Number(focus.total),
+        taskCount: Number(tasks.n),
+        doneTaskCount: Number(tasks.done),
+        log: log ? mapProjectLog(log) : null,
+        lastLog: last ? mapProjectLog(last) : null,
+      };
+    });
+  }
+
+  /** 新建长期项目，同时建它的主任务（course='长期项目'）。同 ID 同内容可安全重试。 */
+  createProject({ id, title, goal = '', startDay, dueDay = null, dailyMinutes = null, mainTaskId }) {
+    requireId(id, '项目 id');
+    requireId(mainTaskId, '主任务 id');
+    const cleanTitle = requireText(title, '项目名称', 120);
+    const cleanGoal = optionalText(goal, '项目目标', MAX_TEXT);
+    if (!isValidDate(startDay)) throw invalid('开始日期格式应为 YYYY-MM-DD');
+    if (dueDay != null && (!isValidDate(dueDay) || dueDay < startDay)) throw invalid('截止日期应不早于开始日期');
+    const minutes = dailyMinutes == null ? null : requirePositiveInt(dailyMinutes, '每日分钟数');
+    return this.#tx(() => {
+      const existing = this.#one('SELECT * FROM projects WHERE id = ?', id);
+      if (existing) {
+        const same = existing.title === cleanTitle && existing.goal === cleanGoal
+          && existing.start_day === startDay && existing.due_day === (dueDay ?? null)
+          && existing.daily_minutes === minutes && existing.main_task_id === mainTaskId;
+        if (same) return { ok: true, created: false };
+        throw conflict(`项目 ${id} 已存在且内容不同`);
+      }
+      if (this.#one('SELECT id FROM tasks WHERE id = ?', mainTaskId)) throw conflict(`任务 ${mainTaskId} 已存在`);
+      this.#run(
+        'INSERT INTO projects (id, title, goal, start_day, due_day, daily_minutes, main_task_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        id, cleanTitle, cleanGoal, startDay, dueDay ?? null, minutes, mainTaskId,
+      );
+      this.#run(
+        'INSERT INTO tasks (id, title, course, project_id) VALUES (?, ?, ?, ?)',
+        mainTaskId, cleanTitle, PROJECT_COURSE, id,
+      );
+      return { ok: true, created: true };
+    });
+  }
+
+  /** 改名称、目标、日期或每日分钟数；改名同步到主任务。未传的字段不变，传 null 表示清空可空字段。 */
+  updateProject({ projectId, title, goal, startDay, dueDay, dailyMinutes }) {
+    requireId(projectId, '项目 id');
+    return this.#tx(() => {
+      const row = this.#one('SELECT * FROM projects WHERE id = ?', projectId);
+      if (!row) throw missing(`项目 ${projectId} 不存在`);
+      const next = {
+        title: title === undefined ? row.title : requireText(title, '项目名称', 120),
+        goal: goal === undefined ? row.goal : optionalText(goal, '项目目标', MAX_TEXT),
+        start: startDay === undefined ? row.start_day : startDay,
+        due: dueDay === undefined ? row.due_day : dueDay,
+        minutes: dailyMinutes === undefined ? row.daily_minutes
+          : (dailyMinutes == null ? null : requirePositiveInt(dailyMinutes, '每日分钟数')),
+      };
+      if (!isValidDate(next.start)) throw invalid('开始日期格式应为 YYYY-MM-DD');
+      if (next.due != null && (!isValidDate(next.due) || next.due < next.start)) throw invalid('截止日期应不早于开始日期');
+      this.#run(
+        'UPDATE projects SET title = ?, goal = ?, start_day = ?, due_day = ?, daily_minutes = ? WHERE id = ?',
+        next.title, next.goal, next.start, next.due ?? null, next.minutes, projectId,
+      );
+      this.#run('UPDATE tasks SET title = ? WHERE id = ?', next.title, row.main_task_id);
+      return { ok: true };
+    });
+  }
+
+  /** complete / reopen / archive / unarchive。完成项目会同时完成主任务，重开则一并撤销。 */
+  setProjectState({ projectId, action }) {
+    requireId(projectId, '项目 id');
+    if (!['complete', 'reopen', 'archive', 'unarchive'].includes(action)) throw invalid(`未知项目操作：${action}`);
+    return this.#tx(() => {
+      const row = this.#one('SELECT * FROM projects WHERE id = ?', projectId);
+      if (!row) throw missing(`项目 ${projectId} 不存在`);
+      const now = this.now();
+      if (action === 'complete' && row.completed_at == null) {
+        this.#run('UPDATE projects SET completed_at = ? WHERE id = ?', now, projectId);
+        this.#run('UPDATE tasks SET completed_at = ? WHERE id = ? AND completed_at IS NULL', now, row.main_task_id);
+      } else if (action === 'reopen' && row.completed_at != null) {
+        this.#run('UPDATE projects SET completed_at = NULL WHERE id = ?', projectId);
+        this.#run('UPDATE tasks SET completed_at = NULL WHERE id = ?', row.main_task_id);
+      } else if (action === 'archive' && row.archived_at == null) {
+        this.#run('UPDATE projects SET archived_at = ? WHERE id = ?', now, projectId);
+      } else if (action === 'unarchive' && row.archived_at != null) {
+        this.#run('UPDATE projects SET archived_at = NULL WHERE id = ?', projectId);
+      }
+      return { ok: true };
+    });
+  }
+
+  /** 写某个项目某天的进展（一天一条，覆盖写）。progress 为 0–100 或 null。 */
+  saveProjectLog({ projectId, day, note = '', progress = null }) {
+    requireId(projectId, '项目 id');
+    if (!isValidDate(day)) throw invalid('日期格式应为 YYYY-MM-DD');
+    const cleanNote = optionalText(note, '进展', MAX_TEXT);
+    if (progress != null && (!Number.isInteger(progress) || progress < 0 || progress > 100)) {
+      throw invalid('进度应为 0–100 的整数');
+    }
+    return this.#tx(() => {
+      if (!this.#one('SELECT id FROM projects WHERE id = ?', projectId)) throw missing(`项目 ${projectId} 不存在`);
+      this.#run(
+        'INSERT INTO project_logs (project_id, day, note, progress, updated_at) VALUES (?, ?, ?, ?, ?)'
+          + ' ON CONFLICT(project_id, day) DO UPDATE SET note = excluded.note, progress = excluded.progress,'
+          + ' updated_at = excluded.updated_at',
+        projectId, day, cleanNote, progress, this.now(),
+      );
+      return { ok: true };
+    });
+  }
+
+  /** 全部项目（含已完成、已归档），供 AI 读取与导出。 */
+  listProjects() {
+    return this.#all('SELECT * FROM projects ORDER BY created_at, id').map((p) => ({
+      ...mapProject(p),
+      logs: this.#all('SELECT * FROM project_logs WHERE project_id = ? ORDER BY day', p.id).map(mapProjectLog),
+    }));
+  }
+
+  // ---------------------------------------------------------------- AI 回顾缓存
+
+  readDailyReview(day) {
+    if (!isValidDate(day)) throw invalid(`日期格式应为 YYYY-MM-DD：${day}`);
+    const row = this.#one('SELECT * FROM daily_reviews WHERE day = ?', day);
+    return row ? {
+      day: row.day, factsHash: row.facts_hash, text: row.text,
+      provider: row.provider, model: row.model, createdAt: row.created_at,
+    } : null;
+  }
+
+  saveDailyReview({ day, factsHash, text, provider = '', model = '' }) {
+    if (!isValidDate(day)) throw invalid(`日期格式应为 YYYY-MM-DD：${day}`);
+    requireText(factsHash, 'factsHash', 128);
+    const clean = requireText(text, '回顾正文', MAX_TEXT);
+    return this.#tx(() => {
+      this.#run(
+        'INSERT INTO daily_reviews (day, facts_hash, text, provider, model, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+          + ' ON CONFLICT(day) DO UPDATE SET facts_hash = excluded.facts_hash, text = excluded.text,'
+          + ' provider = excluded.provider, model = excluded.model, created_at = excluded.created_at',
+        day, factsHash, clean, optionalText(provider, 'provider', 120), optionalText(model, 'model', 120), this.now(),
+      );
+      return { ok: true };
+    });
   }
 
   readDayNote(day) {
@@ -245,23 +461,28 @@ class Workbench {
   // ---------------------------------------------------------------- 任务
 
   /** createTask：同 ID 同内容视为成功（可安全重试），同 ID 不同内容报冲突。 */
-  createTask({ id, title, course = '', estimatedSeconds = null }) {
+  createTask({ id, title, course = '', estimatedSeconds = null, projectId = null }) {
     requireId(id);
     const cleanTitle = requireText(title, '任务标题', 120);
     const cleanCourse = optionalText(course, '课程', 60);
     const est = estimatedSeconds == null ? null : requirePositiveInt(estimatedSeconds, '预计秒数');
+    if (projectId != null) requireId(projectId, '项目 id');
     return this.#tx(() => {
       const existing = this.#one('SELECT * FROM tasks WHERE id = ?', id);
       if (existing) {
         const same = existing.title === cleanTitle
           && existing.course === cleanCourse
-          && existing.estimated_seconds === est;
+          && existing.estimated_seconds === est
+          && (existing.project_id ?? null) === (projectId ?? null);
         if (same) return { ok: true, created: false };
         throw conflict(`任务 ${id} 已存在且内容不同`);
       }
+      if (projectId != null && !this.#one('SELECT id FROM projects WHERE id = ?', projectId)) {
+        throw missing(`项目 ${projectId} 不存在`);
+      }
       this.#run(
-        'INSERT INTO tasks (id, title, course, estimated_seconds) VALUES (?, ?, ?, ?)',
-        id, cleanTitle, cleanCourse, est,
+        'INSERT INTO tasks (id, title, course, estimated_seconds, project_id) VALUES (?, ?, ?, ?, ?)',
+        id, cleanTitle, cleanCourse, est, projectId ?? null,
       );
       return { ok: true, created: true };
     });
@@ -666,7 +887,33 @@ function mapTask(row) {
     course: row.course ?? '',
     estimatedSeconds: row.estimated_seconds ?? null,
     completedAt: row.completed_at ?? null,
+    projectId: row.project_id ?? null,
   };
+}
+
+function mapProject(p) {
+  return {
+    id: p.id,
+    title: p.title,
+    goal: p.goal,
+    startDay: p.start_day,
+    dueDay: p.due_day ?? null,
+    dailyMinutes: p.daily_minutes ?? null,
+    mainTaskId: p.main_task_id,
+    createdAt: p.created_at,
+    completedAt: p.completed_at ?? null,
+    archivedAt: p.archived_at ?? null,
+  };
+}
+
+function mapProjectLog(row) {
+  return { day: row.day, note: row.note, progress: row.progress ?? null, updatedAt: row.updated_at };
+}
+
+/** 两个 YYYY-MM-DD 之间相差几天（b - a），只做日历运算。 */
+export function daysBetween(a, b) {
+  const toUtc = (s) => Date.UTC(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)));
+  return Math.round((toUtc(b) - toUtc(a)) / 86400000);
 }
 
 function mapFocus(row) {
