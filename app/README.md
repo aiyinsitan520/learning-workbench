@@ -119,3 +119,10 @@ app/
 - 导入只支持空库，不做合并或冲突解决。
 - 没有桌面壳（Tauri），也没有 Mac 原生版本；当前是本机 HTTP 服务。
 - 视觉方向：素材库 shell-001（Mac 分组工具条 + 内嵌侧栏）、navigation-002（可折叠侧栏），灵动岛参考 overlay-001。未做深色模式。
+
+
+## 给 AI 读取数据
+
+在项目根目录右键「导出给AI.ps1」，选择「使用 PowerShell 运行」，或执行 `node app/tools/export-ai.mjs --days 30`。导出目录为 `app/data/ai-export/`，包含 JSON、Markdown 和数据口径说明。任务正文默认省略，按需通过命令行加 `--notes`。
+
+接口、SQLite 字段和分析提示词示例见 [给 AI 读取学习工作台数据](../docs/DATA_FOR_AI.md)。
