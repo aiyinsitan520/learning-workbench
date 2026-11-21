@@ -224,8 +224,30 @@ function checkDayRollover() {
   void reload();
 }
 
+// 页面可能开着好几天：前端代码更新后，旧窗口还在跑旧代码（日期、时区都可能算错）。
+// 每 30 秒问一次服务的 build，变了就在「没有对话框、没有拖动、手记已保存」时整页重载。
+let pageBuild = null;
+let buildCheckedAt = 0;
+
+async function checkBuild(force = false) {
+  const now = Date.now();
+  if (!force && now - buildCheckedAt < 30000) return;
+  buildCheckedAt = now;
+  let build;
+  try { ({ build } = await api.health()); } catch { return; }
+  if (!build) return;
+  if (pageBuild === null) { pageBuild = build; return; }
+  if (build === pageBuild) return;
+  const busy = $('#dialog')?.open || document.querySelector('.planner-dragging') || state.busy;
+  if (busy) { buildCheckedAt = 0; return; } // 忙完下一次 tick 再试
+  try { await taskNotes.saveNow(); } catch { /* 保存失败也不丢：beforeunload 会拦 */ }
+  if (taskNotes.hasUnsavedWork()) return;
+  location.reload();
+}
+
 function tick() {
   checkDayRollover();
+  void checkBuild();
   const open = state.view?.openFocus;
   const clock = $('#clock');
   if (!open) {
@@ -503,7 +525,9 @@ window.addEventListener('beforeunload', (event) => {
 
 // 窗口重新回到前台时读一次最新数据：服务重启、时区变化或另一窗口的修改都能及时跟上。
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state.view && !state.busy) void refresh();
+  if (document.visibilityState !== 'visible') return;
+  void checkBuild(true);
+  if (state.view && !state.busy) void refresh();
 });
 
 // 持续记录当前页的滚动位置：重绘会把 scrollY 归零，所以不能等要用的时候才读。

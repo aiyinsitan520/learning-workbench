@@ -43,6 +43,8 @@ test('健康检查返回时区', async () => {
   assert.equal(status, 200);
   assert.equal(json.ok, true);
   assert.equal(json.timeZone, 'Asia/Shanghai');
+  // 前端版本号：public/ 最新修改时间，长期开着的页面据此自动重载
+  assert.match(json.build, /^\d+$/);
 });
 
 test('完整用户路径：新建 → 排期 → 专注 → 完成 → 撤销', async () => {

@@ -2,7 +2,7 @@
 // 只监听回环地址；数据落在应用私有目录的 SQLite 文件里。
 
 import { createServer } from 'node:http';
-import { readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,7 +37,7 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     try {
       if (url.pathname.startsWith('/api/')) {
-        await handleApi(workbench, req, res, url);
+        await handleApi(workbench, req, res, url, publicDir);
         return;
       }
       await serveStatic(req, res, url.pathname, publicDir, projectDir);
@@ -59,7 +59,24 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
 
 // ------------------------------------------------------------------ API
 
-async function handleApi(wb, req, res, url) {
+let buildCache = { dir: '', at: 0, value: '' };
+
+/** public/ 下所有文件最新的修改时间（毫秒，字符串）；2 秒内复用结果。 */
+async function publicBuild(dir) {
+  const now = Date.now();
+  if (buildCache.dir === dir && now - buildCache.at < 2000) return buildCache.value;
+  let latest = 0;
+  for (const name of await readdir(dir, { recursive: true })) {
+    try {
+      const info = await stat(join(dir, name));
+      if (info.isFile() && info.mtimeMs > latest) latest = info.mtimeMs;
+    } catch { /* 读取途中被删的文件忽略 */ }
+  }
+  buildCache = { dir, at: now, value: String(Math.floor(latest)) };
+  return buildCache.value;
+}
+
+async function handleApi(wb, req, res, url, publicDir) {
   const route = `${req.method} ${url.pathname}`;
   try {
     const body = req.method === 'POST' ? await readJson(req) : null;
@@ -156,7 +173,8 @@ async function handleApi(wb, req, res, url) {
         return;
       }
       case 'GET /api/health':
-        sendJson(res, 200, { ok: true, timeZone: wb.timeZone, now: nowSeconds() });
+        // build：前端文件的最新修改时间。长期开着的窗口据此发现代码已更新并自动重载。
+        sendJson(res, 200, { ok: true, timeZone: wb.timeZone, now: nowSeconds(), build: await publicBuild(publicDir) });
         return;
       default:
         sendJson(res, 404, { ok: false, reason: 'invalid', message: `未知接口 ${route}` });
