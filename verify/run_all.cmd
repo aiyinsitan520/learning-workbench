@@ -21,17 +21,16 @@ echo ===== Behavior regression (temp db) =====
 node verify\check_behavior.mjs || set FAILED=1
 echo.
 echo ===== Repository + server tests =====
-node --test app\test\workbench.test.js app\test\server.test.js app\test\v2.test.js || set FAILED=1
+rem 所有 app\test\*.test.js 都会被跑到：新增单元测试不必改本文件
+node --test "app/test/*.test.js" || set FAILED=1
 
-if /i "%~1"=="full" (
-  echo.
-  echo ===== Browser UI tests ^(temp dir^) =====
-  mkdir "%TEMP%\learning-space-ui-run" 2>nul
-  pushd "%TEMP%\learning-space-ui-run"
-  node --test "%ROOT%\app\test\ui.test.mjs" "%ROOT%\app\test\yesterday.test.mjs" || set FAILED=1
-  popd
-)
+if /i not "%~1"=="full" goto summary
+echo.
+echo ===== Browser UI tests (temp dir) =====
+rem 所有 app\test\*.test.mjs（浏览器用例）都会被跑到，在临时目录运行（见 verify\run_ui.mjs）
+node verify\run_ui.mjs || set FAILED=1
 
+:summary
 echo.
 if defined FAILED (
   echo ===== RESULT: FAIL =====
