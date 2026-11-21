@@ -1,6 +1,7 @@
 // 各页面的 HTML 渲染。纯函数：拿状态返回字符串，事件由 app.js 统一代理。
 
 import { esc, icon } from './icons.js';
+import { zoneWall } from './dom.js';
 
 // 中央五页。书写统一在任务正文里完成，旧的「学习笔记 / 学习流程」页已撤下。
 export const PAGES = {
@@ -39,6 +40,8 @@ const pad = (n) => String(n).padStart(2, '0');
 
 /** UTC 秒 → 当天本地 HH:MM。 */
 export function clockOf(epochSeconds, timeZone) {
+  const wall = zoneWall(epochSeconds, timeZone);
+  if (wall) return `${pad(wall.getUTCHours())}:${pad(wall.getUTCMinutes())}`;
   const dtf = new Intl.DateTimeFormat('en-GB', {
     timeZone, hour: '2-digit', minute: '2-digit', hour12: false,
   });

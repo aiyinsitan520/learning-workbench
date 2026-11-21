@@ -24,3 +24,12 @@
 数据：经用户本意，「刷视频看手机」时间块改到 2026-11-21 10:00–10:30 北京时间（同 block id）。
       20 日另有两条重复的「准备科研论文」块（17:15、14:00）未动，待用户决定是否删除。
 验收：verify\run_all.cmd full PASS（UI 36/36）；内置浏览器实测改前端文件后约 30 秒自动重载。
+
+完成｜Claude｜app/public/js/dom.js、views.js、app.js、app/test/ui.test.mjs｜2026-11-21 11:30
+根因：用户 Chrome 装了「Change Timezone for Google Chrome」扩展，篡改 Intl 的时区结果；
+      页面用 Intl 把时间换成北京钟点，时间轴整体错开 8 小时，9:00/10:00 的块落在可见范围外，
+      新加的块也存错日子（无痕窗口不加载扩展时显示正常，已截图核实）。
+修法：dom.js 新增 learnZone/zoneWall：从服务视图（day + range.start）推出工作台时区偏移，
+      clockOf、localToday 改用 UTC 运算，不再依赖浏览器 Intl；未取得视图前才回退 Intl。
+验收：verify\run_all.cmd full PASS（仓储/服务 55/55，UI 37/37，新增「扩展篡改 Intl」用例）；
+      用户真实 Chrome 窗口截图：9:00 准备科研论文、刷视频看手机均显示在左侧计划栏。

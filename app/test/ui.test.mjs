@@ -888,6 +888,45 @@ test('日期按服务时区（北京时间）分日，不随浏览器所在时�
   await page.waitFor('!!window.__wbState.view');
 });
 
+test('「改时区」扩展篡改 Intl 时，日计划仍按北京时间显示时间块', async () => {
+  // 模拟用户装的 Change Timezone 扩展：Intl.DateTimeFormat 无视传入的 timeZone，一律按 UTC。
+  const { identifier } = await page.send('Page.addScriptToEvaluateOnNewDocument', { source: `
+    const Real = Intl.DateTimeFormat;
+    Intl.DateTimeFormat = function (locale, options = {}) { return new Real(locale, { ...options, timeZone: 'UTC' }); };
+    Intl.DateTimeFormat.prototype = Real.prototype;
+  ` });
+  try {
+    const id = 'ui-spoofed-tz';
+    assert.equal(await page.evaluate(`
+      const post = (command) => fetch('/api/command', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ command }) }).then((r) => r.ok);
+      const { view } = await (await fetch('/api/view')).json();
+      return await post({ type: 'createTask', id: '${id}', title: '九点的块', course: '日计划' })
+        && await post({ type: 'saveSchedule', block: { id: '${id}-b', taskId: '${id}',
+          startsAt: view.range.start + 9 * 3600, plannedSeconds: 3600 } });
+    `), true);
+    await page.goto(`${base}/`);
+    await page.waitFor('!!window.__wbState.view && document.querySelector("[data-plan-hour]")');
+    const seen = await page.evaluate(`
+      const v = window.__wbState.view;
+      const first = Number(document.querySelector('[data-plan-hour]').dataset.planHour);
+      const card = [...document.querySelectorAll('.planner-block')].find((e) => e.textContent.includes('九点的块'));
+      return { spoofed: new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Shanghai', hour: '2-digit' }).resolvedOptions().timeZone,
+        firstHourOffset: first - v.range.start, top: card?.style.top ?? null,
+        label: document.querySelector('.planner-hour')?.textContent.trim().slice(0, 5), day: window.__wbState.day, serverDay: v.day };
+    `);
+    assert.equal(seen.spoofed, 'UTC', '模拟扩展应生效');
+    assert.equal(seen.firstHourOffset, 6 * 3600, '时间轴第一格应是北京时间 06:00');
+    assert.equal(seen.label, '06:00');
+    assert.equal(seen.top, '96px', '九点的块应画在 06:00 往下 3 小时处');
+    assert.equal(seen.day, seen.serverDay);
+  } finally {
+    await page.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
+    await page.goto(`${base}/`);
+    await page.waitFor('!!window.__wbState.view');
+  }
+});
+
 test('无控制台错误、无未捕获异常', async () => {
   assert.deepEqual(page.pageErrors, [], `页面异常：${page.pageErrors.join('\n')}`);
   assert.deepEqual(page.consoleErrors, [], `控制台错误：${page.consoleErrors.join('\n')}`);

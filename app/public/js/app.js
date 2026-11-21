@@ -2,7 +2,7 @@
 // 画面部件分在 nav.js（工具条）、focus.js（灵动岛 / 管家）、dialogs.js（弹窗）、
 // planner.js（日计划）、task-notes.js（任务正文）、views.js（各页 HTML）。
 import { api, ApiError, newId } from './api.js';
-import { $, localToday, notify, closeDialog, prefs, prefersReducedMotion } from './dom.js';
+import { $, learnZone, localToday, notify, closeDialog, prefs, prefersReducedMotion } from './dom.js';
 import { hydrateIcons } from './icons.js';
 import { bindPlanner, DEFAULT_PLAN_SECONDS } from './planner.js';
 import { bindTaskNotes } from './task-notes.js';
@@ -70,6 +70,7 @@ async function refresh() {
   try {
     const payload = await api.view(state.day, state.selectedTaskId);
     if (seq !== refreshSeq) return;
+    learnZone(payload.view);
     Object.assign(state, {
       view: payload.view, stats: payload.stats, focusLog: payload.focusLog, recommended: payload.recommended,
     });
