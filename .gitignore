@@ -15,3 +15,6 @@ __pycache__/
 node_modules/
 .DS_Store
 Thumbs.db
+
+# 验收脚本自动生成的备份
+verify/.backup/
