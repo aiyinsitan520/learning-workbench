@@ -158,3 +158,24 @@
 - 浏览器测试 ui-projects.test.mjs：新建（含快捷截止）→ 卡片天数正确；开始专注后灵动岛/专注页是该主任务；编辑改名后左栏待办同步；完成后从卡片区消失；
   440px 不溢出；无控制台错误。
 完成标准：右栏可建、看、专注、编辑、完成长期项目；node --test app/test/ui-projects.test.mjs 全过 + verify\run_all.cmd full 通过
+
+### T4 结果
+
+完成｜DSH｜app/public/js/board.js、app/public/board.css、app/public/js/review.js、app/test/ui-board.test.mjs、app/test/yesterday.test.mjs｜2026-11-21 22:50｜提交 e7aa0d3
+看板：标题行（日期 + 昨天/今天 + ‹ › 不晚于 today + 保存图片）、四个数字卡、AI 回顾卡（有 review 显示正文与模型·生成时间，
+stale 显示「记录有更新」+ 重新生成；无则本地摘要 + 生成按钮；报错原样提示，含「还没有设置模型」时给「去设置模型」）、
+「没做完的计划」（顺延到今天 / 标记完成 / 全部顺延）、「长期项目」（天数、剩余、当天进度条、进展 + 进度保存）、
+「当天明细」折叠区、空白天吉祥物。
+review.js 的 localText / paint 改为导出并接受可选标题与落款，看板复用同一套画布导出。
+验收：node --test app/test/ui-board.test.mjs 7/7；verify\run_all.cmd full PASS（66/66、UI 55/55）。
+删改已有断言：app/test/yesterday.test.mjs 原断言的 .review-page DOM 已随「昨日总结」页撤下，改为覆盖仍然存在的
+localText 口径、日期边界、页面不含任务正文、看板「保存图片」的 PNG 尺寸。
+遗留：app/public/review.css 里 .review-page 那一批规则已无对应页面，因不在本工单可改文件里未动，留给架构决定是否删除。
+
+### T5 结果
+
+完成｜DSH｜app/public/js/projects.js、app/public/projects.css、app/test/ui-projects.test.mjs｜2026-11-21 22:52｜提交 fbbca47
+右栏「长期项目」：区块头（数量 + ＋）、空态引导、新建弹窗（名称 / 目标 / 开始日期 / 快捷截止 1 周·2 周·1 个月·无截止 / 每天投入
+30·60·90·自定义）、项目卡（第 n/total 天 · 剩 n 天，逾期用 --danger；今天专注 / 每日目标进度条；最近进展一行；
+开始专注 / 写正文 / ⋯ 菜单：编辑·完成项目·归档，后两者二次确认）。弹窗改为 novalidate + 中文提示。
+验收：node --test app/test/ui-projects.test.mjs 9/9；verify\run_all.cmd full PASS（66/66、UI 55/55）。
