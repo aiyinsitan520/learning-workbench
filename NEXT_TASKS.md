@@ -33,3 +33,10 @@
       clockOf、localToday 改用 UTC 运算，不再依赖浏览器 Intl；未取得视图前才回退 Intl。
 验收：verify\run_all.cmd full PASS（仓储/服务 55/55，UI 37/37，新增「扩展篡改 Intl」用例）；
       用户真实 Chrome 窗口截图：9:00 准备科研论文、刷视频看手机均显示在左侧计划栏。
+
+完成｜Claude｜tokens.css、skins.css（新）、app.css、planner.css、review.css、index.html、js/skins.js（新）、js/app.js、app/public/skins/（新）、app/test/ui.test.mjs、AGENTS.md、app/README.md｜2026-11-21 多套皮肤与美术优化
+内容：六套皮肤（薄荷默认、奶糖 Mac、拿铁、摩卡夜深色、极光、晨玫瑰），顶栏「皮肤」按钮切换并记在本机；
+      三个样式表约 100 处写死颜色全部改为令牌，派生色用 color-mix 从基础色推出；每套皮肤配一个 Fluent Emoji 3D 吉祥物。
+素材：E:/AI项目/软件UI素材库 新增 theme-001、illustration-002（均标明由 Claude 收录，MIT 许可），INDEX/DECISIONS/PREFERENCES 已更新（备份 .bak-20261121-cc-skins）。
+验收：verify\run_all.cmd full PASS（55/55、UI 38/38，新增「皮肤」用例含「样式表无写死颜色」检查）；六套皮肤首页/日历页截图已人工检查。
+遗留：默认皮肤是否改为「奶糖 Mac」待用户决定；yesterday.test 与 ui.test 并行时偶发 PNG 下载超时（单独跑通过，重跑通过）。

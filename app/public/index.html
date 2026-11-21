@@ -6,7 +6,10 @@
 <title>学习工作台</title>
 <link rel="icon" type="image/png" href="/icon.png">
 <meta name="theme-color" content="#f6f9f7">
+<script>/* 首屏前套用上次选的皮肤，避免闪默认配色；完整逻辑在 js/skins.js */
+try { var s = localStorage.getItem('workbench.skin'); if (s && s !== 'mint') document.documentElement.dataset.skin = s; } catch (e) {}</script>
 <link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/skins.css">
 <link rel="stylesheet" href="/app.css">
 <link rel="stylesheet" href="/planner.css">
 <link rel="stylesheet" href="/review.css">
@@ -20,6 +23,8 @@
   </div>
   <nav id="tools" class="toolbar" aria-label="切换中央页面"></nav>
   <div class="headtools">
+    <button type="button" id="skinToggle" class="fonttoggle skintoggle" aria-label="换皮肤"
+      title="换皮肤"><span class="skinmascot" aria-hidden="true"></span><b>薄荷</b></button>
     <button type="button" id="fontToggle" class="fonttoggle" aria-pressed="true">圆体</button>
     <div class="island">
       <button class="islandMain" id="islandMain" aria-expanded="false" aria-controls="islandBox"

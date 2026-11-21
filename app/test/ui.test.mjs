@@ -2,7 +2,7 @@
 // 需要先启动服务：PORT=7321 node app/server.js
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { launch } from './browser.mjs';
@@ -925,6 +925,39 @@ test('「改时区」扩展篡改 Intl 时，日计划仍按北京时间显示�
     await page.goto(`${base}/`);
     await page.waitFor('!!window.__wbState.view');
   }
+});
+
+test('皮肤：六套可切换，颜色真的变，刷新后记住；样式表里不写死颜色', async () => {
+  // 组件样式只能引用令牌，换皮肤才会整页跟着变
+  for (const file of ['app.css', 'planner.css', 'review.css']) {
+    const css = readFileSync(new URL(`../public/${file}`, import.meta.url), 'utf8');
+    assert.deepEqual(css.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(/g) ?? [], [], `${file} 里有写死的颜色，请改用 tokens.css 的令牌`);
+  }
+  await page.goto(`${base}/`);
+  await page.waitFor('!!window.__wbState.view');
+  const accentOf = `getComputedStyle(document.querySelector('.primary, #newTask button')).backgroundColor`;
+  const mint = await page.evaluate(`return ${accentOf};`);
+  await page.click('#skinToggle');
+  assert.equal(await page.count('[data-skin-pick]'), 6);
+  const seen = new Set([mint]);
+  for (const id of ['candy', 'latte', 'mocha', 'nord', 'rose']) {
+    await page.click(`[data-skin-pick="${id}"]`);
+    const state = await page.evaluate(`return { skin: document.documentElement.dataset.skin,
+      label: document.querySelector('#skinToggle b').textContent, color: ${accentOf} };`);
+    assert.equal(state.skin, id);
+    assert.ok(!seen.has(state.color), `${id} 的按钮颜色应与其他皮肤不同`);
+    seen.add(state.color);
+    await page.click('#skinToggle');
+  }
+  await page.click('[data-skin-pick="mocha"]');
+  await page.goto(`${base}/`);
+  await page.waitFor('!!window.__wbState.view');
+  assert.equal(await page.evaluate(`return document.documentElement.dataset.skin + '|' + getComputedStyle(document.body).colorScheme;`), 'mocha|dark');
+  await page.screenshot(shot('skin-mocha.png'));
+  // 恢复默认，免得影响后面的用例
+  await page.click('#skinToggle');
+  await page.click('[data-skin-pick="mint"]');
+  assert.equal(await page.evaluate(`return document.documentElement.dataset.skin ?? 'mint';`), 'mint');
 });
 
 test('无控制台错误、无未捕获异常', async () => {

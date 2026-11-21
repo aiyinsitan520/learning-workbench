@@ -1,0 +1,224 @@
+/* 皮肤：只覆盖 tokens.css 的「基础色」、字体与圆角。挂在 <html data-skin="…">；皮肤选择器里的小样卡片也用同一属性预览基础色。
+   默认皮肤「薄荷」就是 tokens.css 本身，这里不重复。
+   配色来源与许可见 E:/AI项目/软件UI素材库/references/开源配色主题 皮肤参考（Claude 收录）/README.md
+   - 奶糖 Mac：原创，参考 Apple 系统粉与 daisyUI cupcake 的圆润做法
+   - 拿铁 / 摩卡夜：Catppuccin Latte / Mocha（MIT）
+   - 极光：Nord（MIT）
+   - 晨玫瑰：Rosé Pine Dawn（MIT）
+   吉祥物图片：Microsoft Fluent Emoji 3D（MIT），见 /skins/LICENSE-fluent-emoji.txt */
+
+/* ---------------------------------------------------------------- 奶糖 Mac：可爱圆润 */
+[data-skin="candy"]{
+  --bg:#fbf3ee;
+  --bg-header:rgba(255,249,245,.78);
+  --bg-art:
+    radial-gradient(640px 420px at -4% -6%,#ffd9e3a6,transparent 62%),
+    radial-gradient(560px 420px at 104% 4%,#e4dcffa0,transparent 60%),
+    radial-gradient(620px 480px at 55% 108%,#ffecc8a0,transparent 62%);
+  --surface:#fffdfb;
+  --surface-2:#fff6f1;
+  --surface-3:#fbe9e3;
+  --line:#f2dfd8;
+  --line-strong:#ebcfc5;
+  --ink:#4a3540;
+  --ink-2:#5e4351;
+  --muted:#8e7280;
+  --faint:#bea4b0;
+  --accent:#ef6f8e;
+  --accent-hover:#e35b7d;
+  --accent-soft:#ffe2ea;
+  --accent-line:#f5b6c6;
+  --accent-ink:#b03a5c;
+  --on-accent:#ffffff;
+  --brand-ink:#7a3b55;
+  --brandmark:linear-gradient(140deg,#ff9fb5,#b79cff);
+  --warn:#d98c2b;
+  --danger:#d04f5f;
+  --danger-soft:#ffe5e8;
+  --info:#8b7cf6;
+  --chart:#f193ab;
+  --island:#3d2a35;
+  --island-2:#4c3542;
+  --island-ink:#fff2f6;
+  --island-dot:#ffb3c6;
+  --focus-ring:#ef6f8e;
+  --shadow-tint:#a0566f;
+  --mascot:url("/skins/cat_face.png");
+  --panel-bg:linear-gradient(180deg,rgba(255,253,251,.86),rgba(255,244,240,.8));
+  --block-bg:linear-gradient(180deg,#ffe8ee,#ffdbe5);
+  --radius-xs:9px;
+  --radius-s:13px;
+  --radius-m:17px;
+  --radius-l:26px;
+  --radius-btn:999px;
+}
+
+/* ---------------------------------------------------------------- 拿铁：Catppuccin Latte */
+[data-skin="latte"]{
+  --bg:#eff1f5;
+  --bg-header:rgba(239,241,245,.84);
+  --bg-art:radial-gradient(900px 520px at 85% -12%,#e3d7fb99,transparent 62%),
+    radial-gradient(700px 460px at -8% 110%,#d6e3fd80,transparent 60%);
+  --surface:#fcfcfe;
+  --surface-2:#f5f6f9;
+  --surface-3:#e6e9ef;
+  --line:#dce0e8;
+  --line-strong:#ccd0da;
+  --ink:#4c4f69;
+  --ink-2:#5c5f77;
+  --muted:#6c6f85;
+  --faint:#9ca0b0;
+  --accent:#8839ef;
+  --accent-hover:#7a2be0;
+  --accent-soft:#efe6fd;
+  --accent-line:#cfb6f8;
+  --accent-ink:#6a1fcf;
+  --on-accent:#ffffff;
+  --brand-ink:#4c4f69;
+  --brandmark:linear-gradient(140deg,#8839ef,#7287fd);
+  --warn:#df8e1d;
+  --danger:#d20f39;
+  --danger-soft:#fbe4e9;
+  --info:#1e66f5;
+  --chart:#7287fd;
+  --island:#303446;
+  --island-2:#414559;
+  --island-ink:#eff1f5;
+  --island-dot:#a6d189;
+  --focus-ring:#7287fd;
+  --shadow-tint:#4c4f69;
+  --mascot:url("/skins/books.png");
+  --radius-xs:7px;
+  --radius-s:10px;
+  --radius-m:14px;
+  --radius-l:20px;
+}
+
+/* ---------------------------------------------------------------- 摩卡夜：Catppuccin Mocha（深色） */
+[data-skin="mocha"]{
+  color-scheme:dark;
+  --bg:#181825;
+  --bg-header:rgba(24,24,37,.82);
+  --bg-art:radial-gradient(900px 520px at 90% -10%,#cba6f71f,transparent 60%),
+    radial-gradient(700px 480px at -10% 110%,#89b4fa1a,transparent 60%);
+  --surface:#1e1e2e;
+  --surface-2:#232334;
+  --surface-3:#313244;
+  --line:#313244;
+  --line-strong:#45475a;
+  --ink:#cdd6f4;
+  --ink-2:#bac2de;
+  --muted:#a6adc8;
+  --faint:#7f849c;
+  --accent:#cba6f7;
+  --accent-hover:#d8bbfa;
+  --accent-soft:#372d4f;
+  --accent-line:#6c5894;
+  --accent-ink:#e3cffd;
+  --on-accent:#1e1e2e;
+  --brand-ink:#cdd6f4;
+  --brandmark:linear-gradient(140deg,#cba6f7,#89b4fa);
+  --warn:#f9e2af;
+  --danger:#f38ba8;
+  --danger-soft:#462838;
+  --info:#89b4fa;
+  --chart:#b4befe;
+  --island:#11111b;
+  --island-2:#1a1a29;
+  --island-ink:#cdd6f4;
+  --island-dot:#a6e3a1;
+  --focus-ring:#b4befe;
+  --shadow-tint:#000000;
+  --mascot:url("/skins/crescent_moon.png");
+  --hover:color-mix(in srgb,var(--accent) 10%,var(--surface));
+  --paper-line:#2b2c3e;
+  --plan-bg:#1b1b2a;
+  --plan-quarter:#26263a;
+  --radius-xs:7px;
+  --radius-s:10px;
+  --radius-m:14px;
+  --radius-l:20px;
+}
+
+/* ---------------------------------------------------------------- 极光：Nord（简洁冷静） */
+[data-skin="nord"]{
+  --bg:#eceff4;
+  --bg-header:rgba(236,239,244,.86);
+  --surface:#fbfcfd;
+  --surface-2:#f3f5f9;
+  --surface-3:#e5e9f0;
+  --line:#d8dee9;
+  --line-strong:#c4ccda;
+  --ink:#2e3440;
+  --ink-2:#3b4252;
+  --muted:#4c566a;
+  --faint:#8b94a7;
+  --accent:#5e81ac;
+  --accent-hover:#4f7099;
+  --accent-soft:#e1e9f3;
+  --accent-line:#a9bfd8;
+  --accent-ink:#3b5d86;
+  --on-accent:#ffffff;
+  --brand-ink:#2e3440;
+  --brandmark:#5e81ac;
+  --warn:#c27a5e;
+  --danger:#bf616a;
+  --danger-soft:#f6e3e5;
+  --info:#88c0d0;
+  --chart:#81a1c1;
+  --island:#2e3440;
+  --island-2:#3b4252;
+  --island-ink:#eceff4;
+  --island-dot:#a3be8c;
+  --focus-ring:#81a1c1;
+  --shadow-tint:#2e3440;
+  --mascot:url("/skins/snowflake.png");
+  --sans:var(--system);
+  --heading:var(--system);
+  --radius-xs:4px;
+  --radius-s:6px;
+  --radius-m:8px;
+  --radius-l:12px;
+}
+
+/* ---------------------------------------------------------------- 晨玫瑰：Rosé Pine Dawn（温柔雅致） */
+[data-skin="rose"]{
+  --bg:#faf4ed;
+  --bg-header:rgba(250,244,237,.84);
+  --bg-art:radial-gradient(800px 500px at 100% 0%,#f2d5cf8c,transparent 60%),
+    radial-gradient(700px 460px at 0% 100%,#d9e6e48c,transparent 60%);
+  --surface:#fffaf3;
+  --surface-2:#f8f1ea;
+  --surface-3:#f2e9e1;
+  --line:#ece3db;
+  --line-strong:#dfd8d6;
+  --ink:#575279;
+  --ink-2:#625c86;
+  --muted:#797593;
+  --faint:#9893a5;
+  --accent:#286983;
+  --accent-hover:#1f5a71;
+  --accent-soft:#e2edf0;
+  --accent-line:#a6c4cd;
+  --accent-ink:#1f566b;
+  --on-accent:#fffaf3;
+  --brand-ink:#575279;
+  --brandmark:linear-gradient(140deg,#d7827e,#907aa9);
+  --warn:#ea9d34;
+  --danger:#b4637a;
+  --danger-soft:#f6e4e8;
+  --info:#907aa9;
+  --chart:#d7827e;
+  --island:#3e3a5c;
+  --island-2:#4b466c;
+  --island-ink:#faf4ed;
+  --island-dot:#f6c177;
+  --focus-ring:#56949f;
+  --shadow-tint:#575279;
+  --mascot:url("/skins/rose.png");
+  --heading:var(--serif);
+  --radius-xs:6px;
+  --radius-s:9px;
+  --radius-m:13px;
+  --radius-l:18px;
+}

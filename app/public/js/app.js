@@ -10,6 +10,7 @@ import { showYesterday } from './review.js';
 import { bindToolbar } from './nav.js';
 import { bindFocusChrome, remainingSeconds } from './focus.js';
 import { createDialogs } from './dialogs.js';
+import { bindSkins } from './skins.js';
 import {
   PAGES, LEGACY_PAGES, activityPage, calendarPage, focusPage, mmss, renderDone,
   renderPending, renderProgress, renderRail, taskTitle, todoTasks, weekdayOf, PLAN_COURSE,
@@ -556,5 +557,6 @@ const focusChrome = bindFocusChrome({ state, commands, taskName });
 hydrateIcons();
 if (prefs.get(FOLD_KEY) === '1') setFold(true);
 setPlainFont(prefs.get(FONT_KEY) === 'plain');
+bindSkins();
 setInterval(() => { tick(); focusChrome.tickCat(); }, 500);
 void refresh();

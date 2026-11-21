@@ -1,9 +1,14 @@
-/* 设计令牌：颜色、字体、圆角、阴影、动效。其余样式只引用这些变量。
-   视觉方向：Mac 内嵌侧栏 + 分组工具条（素材 shell-001 / navigation-002），薄荷绿手绘工作台配色。 */
+/* 设计令牌：颜色、字体、圆角、阴影、动效。其余样式只引用这些变量，不写颜色值。
+   视觉方向：Mac 内嵌侧栏 + 分组工具条（素材 shell-001 / navigation-002）。
+   这里是默认皮肤「薄荷」的基础色；其他皮肤在 skins.css 里只覆盖「基础色」一节，
+   「派生色」一节用 color-mix 从基础色推出来，换皮肤时自动跟着变。 */
 :root{
-  /* 颜色 */
+  color-scheme:light;
+
+  /* ---------- 基础色（皮肤覆盖这一节） ---------- */
   --bg:#eef3f1;
   --bg-header:rgba(246,249,247,.86);
+  --bg-art:none;                 /* 页面背景装饰（渐变光斑等），叠在 --bg 上 */
   --surface:#fdfefd;
   --surface-2:#f6f9f7;
   --surface-3:#eaf1ed;
@@ -18,18 +23,59 @@
   --accent-soft:#dfece5;
   --accent-line:#a9c8b6;
   --accent-ink:#1f4c3b;
+  --on-accent:#ffffff;           /* 主按钮上的文字 */
+  --brand-ink:#22423b;
+  --brandmark:#32594f;
   --warn:#a8823f;
   --danger:#a54a3f;
   --danger-soft:#fbecea;
-  --island:#192923;
+  --info:#5b8fc9;
+  --chart:#6ba184;               /* 条形图、进度条 */
+  --island:#192923;              /* 灵动岛、提示条等深色浮层 */
   --island-2:#24392f;
+  --island-ink:#eff6f2;
+  --island-dot:#9fd3ae;
   --focus-ring:#4b8b6e;
+  --shadow-tint:#1e3329;         /* 阴影的色相 */
+  --mascot:url("/skins/seedling.png");
+
+  /* ---------- 派生色（一般不用改） ---------- */
+  --hover:color-mix(in srgb,var(--accent) 7%,var(--surface));
+  --selected-line:color-mix(in srgb,var(--accent) 25%,var(--surface));
+  --check-line:color-mix(in srgb,var(--accent) 32%,var(--surface));
+  --ring-soft:color-mix(in srgb,var(--focus-ring) 16%,transparent);
+  --danger-line:color-mix(in srgb,var(--danger) 30%,var(--surface));
+  --panel-bg:linear-gradient(180deg,var(--surface-2),color-mix(in srgb,var(--accent) 4%,var(--surface-2)));
+  --toolbar-bg:color-mix(in srgb,var(--surface-3) 85%,var(--line));
+  --hero-bg:linear-gradient(120deg,var(--accent-soft),var(--surface-2));
+  --hero-ink:color-mix(in srgb,var(--accent-ink) 85%,var(--ink));
+  --paper-line:color-mix(in srgb,var(--line) 75%,var(--surface));
+  --note-ink:var(--ink);
+  --track:var(--surface-3);
+  --chart-soft:color-mix(in srgb,var(--chart) 50%,var(--surface));
+  --cal-has:color-mix(in srgb,var(--accent) 4%,var(--surface));
+  --cal-sel:color-mix(in srgb,var(--accent) 10%,var(--surface));
+  --plan-bg:color-mix(in srgb,var(--surface-2) 60%,var(--surface));
+  --plan-quarter:color-mix(in srgb,var(--line) 55%,var(--surface));
+  --block-bg:var(--accent-soft);
+  --block-line:var(--accent-line);
+  --block-ink:var(--accent-ink);
+  --block-done-bg:var(--surface-3);
+  --island-line:color-mix(in srgb,var(--island-ink) 14%,var(--island));
+  --island-muted:color-mix(in srgb,var(--island-ink) 62%,var(--island));
+  --island-btn:color-mix(in srgb,var(--island-ink) 9%,var(--island-2));
+  --island-btn-hover:color-mix(in srgb,var(--island-ink) 16%,var(--island-2));
+  --island-busy:#f2c66d;
+  --toast:var(--island);
+  --toast-bad:color-mix(in srgb,var(--danger) 72%,#1a1a1a);
+  --backdrop:color-mix(in srgb,var(--island) 32%,transparent);
 
   /* 字体：拉丁字母和数字先走系统无衬线，中文再落到幼圆，避免幼圆自带的等宽西文字形。 */
   --latin:"SF Pro Rounded","Segoe UI Variable Text","Segoe UI",-apple-system,"Helvetica Neue";
   --round-body:var(--latin),"YouYuan","幼圆","Hiragino Maru Gothic ProN","PingFang SC","Microsoft YaHei",sans-serif;
   --round-heading:"Arial Rounded MT Bold","SF Pro Rounded","华康方圆体W7","DFFangYuanW7-GB","Hiragino Maru Gothic ProN",var(--round-body);
   --system:-apple-system,"Segoe UI Variable Text","Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  --serif:"Iowan Old Style","Georgia","Songti SC","STSong","Noto Serif SC","SimSun",serif;
   --sans:var(--round-body);
   --heading:var(--round-heading);
   --small-text:var(--system);
@@ -40,13 +86,15 @@
   --radius-s:8px;
   --radius-m:12px;
   --radius-l:18px;
+  --radius-btn:var(--radius-s);  /* 按钮；可爱风皮肤改成胶囊 999px */
   --header-h:64px;
   --gap:14px;
 
-  /* 阴影 */
-  --shadow-1:0 1px 2px #1e33290d,0 2px 8px #1e33290a;
-  --shadow-2:0 2px 4px #1e332912,0 8px 24px #1e332914;
-  --shadow-pop:0 14px 40px #16302630,0 2px 6px #1630261a;
+  /* 阴影：色相取 --shadow-tint */
+  --shadow-1:0 1px 2px color-mix(in srgb,var(--shadow-tint) 5%,transparent),0 2px 8px color-mix(in srgb,var(--shadow-tint) 4%,transparent);
+  --shadow-2:0 2px 4px color-mix(in srgb,var(--shadow-tint) 7%,transparent),0 8px 24px color-mix(in srgb,var(--shadow-tint) 8%,transparent);
+  --shadow-pop:0 14px 40px color-mix(in srgb,var(--shadow-tint) 19%,transparent),0 2px 6px color-mix(in srgb,var(--shadow-tint) 10%,transparent);
+  --shadow-btn:0 1px 2px color-mix(in srgb,var(--shadow-tint) 18%,transparent);
 
   /* 动效：选中底板约 280ms，参考 Magpie 切换手感 */
   --ease:cubic-bezier(.22,.9,.24,1);

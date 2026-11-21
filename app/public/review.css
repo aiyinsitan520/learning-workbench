@@ -1,15 +1,15 @@
 .review-page{max-width:850px;margin:0 auto;min-width:0}
 .review-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .review-page h1{margin:0;font-size:24px}
-.review-page canvas{width:100%;height:auto;display:block;border-radius:16px;box-shadow:0 2px 12px #314e3512}
-.review-page details{padding:13px 2px;border-bottom:1px solid #d4dfd5}
-.review-page summary{cursor:pointer;color:#325b47;font-weight:600}
+.review-page canvas{width:100%;height:auto;display:block;border-radius:var(--radius-l);box-shadow:var(--shadow-1)}
+.review-page details{padding:13px 2px;border-bottom:1px solid var(--line)}
+.review-page summary{cursor:pointer;color:var(--accent-ink);font-weight:600}
 .review-page form{display:grid;gap:10px;margin-top:14px}
 .review-page label{display:grid;gap:5px}
-.review-page input{max-width:380px;width:100%;padding:9px;border:1px solid #bccdc1;border-radius:8px;background:#fcfdf9}
+.review-page input{max-width:380px;width:100%;padding:9px;border:1px solid var(--line-strong);border-radius:var(--radius-s);background:var(--surface)}
 .review-page form button{justify-self:start}
-.review-page p,.review-page li{color:#4b6255;overflow-wrap:anywhere}
+.review-page p,.review-page li{color:var(--ink-2);overflow-wrap:anywhere}
 .review-page p{margin:7px 0;font-size:13px}
 .review-page ul{padding-left:20px}
 .review-page h3{font-size:14px}
-.review-page .review-status{color:#355c46}
+.review-page .review-status{color:var(--accent-ink)}
