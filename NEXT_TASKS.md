@@ -179,3 +179,9 @@ localText 口径、日期边界、页面不含任务正文、看板「保存图�
 30·60·90·自定义）、项目卡（第 n/total 天 · 剩 n 天，逾期用 --danger；今天专注 / 每日目标进度条；最近进展一行；
 开始专注 / 写正文 / ⋯ 菜单：编辑·完成项目·归档，后两者二次确认）。弹窗改为 novalidate + 中文提示。
 验收：node --test app/test/ui-projects.test.mjs 9/9；verify\run_all.cmd full PASS（66/66、UI 55/55）。
+
+验收｜Claude｜v2 T1–T5 全部通过｜2026-11-21 23:00
+提交：Codex ab31a31 / 42e18b9 / 9d396bb / 72ad8f4；DSH e7aa0d3 / fbbca47 / 8777e83；Claude 收尾 7e738dc（撤下 review-data.js 与 review.css）。
+验收：verify\run_all.cmd full PASS（仓储/服务 66/66、UI 55/55）；真实库副本截图检查看板、模型接入、长期项目（奶糖 Mac、摩卡夜），无控制台错误、DOM 无 Key；代码审查 Key 脱敏、0600 写盘、禁重定向、Base URL 无凭据。
+上线：7321 已重启，库 v1→v2 自动迁移，备份 app/data/workbench.db.bak-v1-20261121T150007。
+遗留：真实供应商连通性待用户填 Key 实测；右栏项目卡标题过长时截断，可改两行显示（小优化）。
