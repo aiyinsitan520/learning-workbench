@@ -13,6 +13,7 @@ import { bindSkins } from './skins.js';
 import { showBoard } from './board.js';
 import { showAiSettings } from './ai-settings.js';
 import { bindProjects } from './projects.js';
+import { bindPipTimer } from './pip.js';
 import {
   PAGES, LEGACY_PAGES, activityPage, calendarPage, focusPage, mmss, renderDone,
   renderPending, renderProgress, renderRail, taskTitle, todoTasks, weekdayOf, PLAN_COURSE,
@@ -177,6 +178,7 @@ function draw() {
   drawMain(editorTask);
   if (state.page === 'focus') tick();
   focusChrome.draw();
+  pipTimer.update();
 
   if (scroll != null) {
     // DOM 已换完，同步恢复一次，再等一帧兜住图片撑高
@@ -258,6 +260,7 @@ async function checkBuild(force = false) {
 function tick() {
   checkDayRollover();
   void checkBuild();
+  pipTimer?.update();
   const open = state.view?.openFocus;
   const clock = $('#clock');
   if (!open) {
@@ -407,7 +410,8 @@ const clickHandlers = [
   ['page', (v) => gotoPage(v)],
   ['taskNote', (v, d) => openTaskEditor(v, d.block)],
   ['task', (v, d) => { state.freeFocus = false; dialogs.taskDialog(v, d.block); }],
-  ['complete', (v) => commands.complete(v)],
+  // data-keep-editor：在任务正文里点「完成任务」时，正文继续停在这一项，方便看到「撤销」
+  ['complete', (v, d) => { if (d.keepEditor != null) state.editorTaskId = v; commands.complete(v); }],
   ['undo', (v) => commands.undo(v)],
   ['choose', (v) => { state.selectedTaskId = v; state.freeFocus = false; closeDialog(); gotoPage('focus'); void refresh(); }],
   ['select', (v) => { state.selectedTaskId = v; closeDialog(); void commands.start(); }],
@@ -429,6 +433,7 @@ const actions = {
   resume: () => commands.resume(),
   finish: () => commands.finish(),
   choose: () => dialogs.chooseTaskDialog(),
+  pip: () => { focusChrome.showIsland(false); void pipTimer.toggle(); },
   newTask: () => { focusChrome.toggleCat(false); focusNewTask(); },
   freeFocus: () => { state.freeFocus = true; draw(); notify('已切到自由专注，不绑定任务'); },
 };
@@ -572,6 +577,8 @@ const moduleCtx = {
   openTask: (taskId) => openTaskEditor(taskId),
 };
 const projects = bindProjects($('#projects'), moduleCtx);
+// 番茄钟悬浮小窗（Document Picture-in-Picture，退路为视频画中画），随 tick 与重绘刷新
+const pipTimer = bindPipTimer({ state, commands, taskName, remainingSeconds, notify });
 
 hydrateIcons();
 if (prefs.get(FOLD_KEY) === '1') setFold(true);

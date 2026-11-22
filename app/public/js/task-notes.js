@@ -195,6 +195,7 @@ export function bindTaskNotes(main, renameTask) {
           <div class="task-editor-tools">
             <button type="button" class="light" id="taskEditorDetails">任务详情</button>
             <button type="button" class="light" id="taskEditorFocus" data-action="start">开始专注</button>
+            <button type="button" class="primary" id="taskEditorDone" data-keep-editor>完成任务</button>
           </div>
         </div>
         <textarea id="taskNoteBody" aria-label="任务正文" maxlength="32000" placeholder="写点什么…"></textarea>
@@ -217,6 +218,19 @@ export function bindTaskNotes(main, renameTask) {
     const focusButton = main.querySelector('#taskEditorFocus');
     focusButton.dataset.focusTask = task.id;
     focusButton.hidden = Boolean(task.completedAt || openFocus);
+    // 完成 / 撤销：走外壳的 data-complete / data-undo 分派（commands.complete / undo）
+    const done = main.querySelector('#taskEditorDone');
+    delete done.dataset.complete;
+    delete done.dataset.undo;
+    if (task.completedAt) {
+      done.dataset.undo = task.id;
+      done.className = 'light done-toggle';
+      done.textContent = '已完成 · 撤销';
+    } else {
+      done.dataset.complete = task.id;
+      done.className = 'primary done-toggle';
+      done.textContent = '完成任务';
+    }
   }
 
   main.addEventListener('input', (event) => {
