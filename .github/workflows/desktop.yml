@@ -1,5 +1,8 @@
 name: Desktop packages
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
 permissions:
   contents: read
 jobs:
@@ -21,3 +24,28 @@ jobs:
           name: desktop-${{ matrix.os }}
           path: dist/*
           if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: packages
+          merge-multiple: true
+      - name: Publish verified desktop packages
+        working-directory: packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          sha256sum Learning-Workbench-Windows-x64.zip Learning-Workbench-macOS-{arm64,x64}.dmg > SHA256SUMS.txt
+          gh release create "$TAG" --verify-tag --draft --title "学习工作台 $TAG" --notes "Windows 请完整解压 ZIP 后打开 Learning Workbench.exe。Mac 请按芯片下载 DMG 并将应用拖入「应用程序」。三个包均经过对应系统的启动测试。Windows 未商业签名，Mac 使用临时签名，未经公证。校验值见 SHA256SUMS.txt。"
+          gh release upload "$TAG" Learning-Workbench-* SHA256SUMS.txt
+          gh release edit "$TAG" --draft=false --latest

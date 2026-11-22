@@ -15,7 +15,7 @@ node app\seed.js      # 可选：灌一份示例数据
 node app\server.js    # 启动，默认 http://127.0.0.1:7321/
 ```
 
-环境变量：`PORT`（端口）、`WORKBENCH_DB`（数据库路径）、`WORKBENCH_TZ`（时区，默认取系统）。
+环境变量：`PORT`（端口）、`WORKBENCH_DB`（数据库路径）、`WORKBENCH_TZ`（时区，默认 Asia/Shanghai）。
 
 要求 Node.js 22 或更新版本（用到内置的 `node:sqlite`）。**没有任何第三方依赖**，
 不需要 `npm install`。启动脚本会检查版本，过低时直接给出提示而不是抛一堆栈。
@@ -122,8 +122,8 @@ app/
 - 时间块按开始时刻归到某一天，跨天时间块不会拆分显示。
 - 旧的「学习笔记 / 学习流程」页已于 2026-11-20 撤下。库里已有的每日手记保留，仍随整库导出，日历以「旧手记」显示标题，每日维护仍会统计。
 - 导入只支持空库，不做合并或冲突解决。
-- 没有桌面壳（Tauri），也没有 Mac 原生版本；当前是本机 HTTP 服务。
-- 视觉方向：素材库 shell-001（Mac 分组工具条 + 内嵌侧栏）、navigation-002（可折叠侧栏），灵动岛参考 overlay-001。未做深色模式。
+- 桌面发行版内置 Electron 和本机服务，Windows、Apple 芯片 Mac 和 Intel Mac 的下载与迁移说明见[项目首页](../README.md)。
+- 视觉方向：素材库 shell-001（Mac 分组工具条 + 内嵌侧栏）、navigation-002（可折叠侧栏），灵动岛参考 overlay-001。深色皮肤为「摩卡夜」。
 
 
 ## 给 AI 读取数据

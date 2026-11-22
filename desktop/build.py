@@ -60,6 +60,10 @@ def build(work):
         run("codesign", "--force", "--deep", "--sign", "-", app)
         run("codesign", "--verify", "--deep", "--strict", app)
     run(exe, "--smoke-test", "--user-data-dir=" + str(work / "smoke-profile"), timeout=90)
+    result = (work / "smoke-profile" / "smoke-result.txt").read_text()
+    if result != "Desktop smoke PASS":
+        raise RuntimeError("Desktop startup check did not complete")
+    print(result, flush=True)
     output = ROOT / "dist"
     output.mkdir(exist_ok=True)
     if windows:
@@ -78,4 +82,3 @@ if __name__ == "__main__":
         raise SystemExit("Use a Windows or macOS builder")
     with tempfile.TemporaryDirectory() as work:
         build(Path(work))
-

@@ -214,3 +214,4 @@ Claude 追加：旧 yesterday.test.mjs 仍等 .review-page 画布，v2 看板上
 原因：浏览器画中画小窗必带黑色标题栏，去不掉；改为 Windows 原生无边框置顶黑色胶囊（WPF，参考 Wisland/Apple）。
 坑：Node spawn 的 PATH 里没有 PowerShell（用完整路径）；detached:true 让 PowerShell 无控制台约 80ms 退出（不用 detached）；被强杀后互斥量「被遗弃」需捕获。
 验收：verify\run_all.cmd full PASS；真实服务上经 /api/island 打开，截图确认顶部居中、显示真实任务。
+完成｜Codex｜桌面打包、实机图库、GitHub 下载与使用指南｜2026-11-22。Windows x64 与 macOS arm64/x64 首轮原生构建通过（Actions 45003911239），full 68+58 通过。发布版由 v1.0.0 标签触发。

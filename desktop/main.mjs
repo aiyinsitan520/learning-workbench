@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, Menu } from 'electron';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { start } from './app/server.js';
 
@@ -61,7 +62,7 @@ async function open() {
       return false;
     })()`);
     if (!ready) throw new Error('Desktop renderer did not load the SQLite view');
-    console.log('Desktop smoke PASS');
+    await writeFile(join(app.getPath('userData'), 'smoke-result.txt'), 'Desktop smoke PASS');
     app.quit();
   }
 }
