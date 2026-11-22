@@ -11,6 +11,7 @@ import { isValidDate, localDateOf, nowSeconds } from './lib/time.js';
 import { dayDigest, factsHash, yesterdayOf, contextSnapshot } from './lib/digest.js';
 import { contextMarkdown } from './lib/context-md.js';
 import { handleAiRoute } from './lib/ai-routes.js';
+import { createIslandController, defaultIslandLauncher } from './lib/island.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(HERE, 'public');
@@ -33,7 +34,10 @@ const BODY_LIMIT = 512 * 1024;
 const BACKUP_TABLES = ['projects', 'tasks', 'schedule_blocks', 'focus_sessions', 'day_notes', 'note_blocks',
   'task_notes', 'project_logs', 'daily_reviews'];
 
-export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root = HERE, aiConfigPath, fetchImpl } = {}) {
+export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root = HERE, aiConfigPath, fetchImpl,
+  islandLauncher = defaultIslandLauncher(root) } = {}) {
+  // 桌面灵动岛（app/island/island.ps1）：测试传 islandLauncher: null 或假启动器，不会真的弹窗
+  const island = createIslandController(islandLauncher);
   const workbench = openDatabase(dbPath, { timeZone });
   // AI 模型配置文件默认放在数据库旁边；测试可传 fetchImpl 换掉真实网络请求。
   const ai = { configPath: aiConfigPath ?? (dbPath && dbPath !== ':memory:' ? join(dirname(dbPath), 'ai-providers.json') : null), fetch: fetchImpl ?? fetch };
@@ -44,7 +48,7 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     try {
       if (url.pathname.startsWith('/api/')) {
-        await handleApi(workbench, req, res, url, publicDir, ai);
+        await handleApi(workbench, req, res, url, publicDir, ai, island);
         return;
       }
       await serveStatic(req, res, url.pathname, publicDir, projectDir);
@@ -83,7 +87,7 @@ async function publicBuild(dir) {
   return buildCache.value;
 }
 
-async function handleApi(wb, req, res, url, publicDir, ai) {
+async function handleApi(wb, req, res, url, publicDir, ai, island) {
   const route = `${req.method} ${url.pathname}`;
   try {
     const body = req.method === 'POST' ? await readJson(req) : null;
@@ -212,6 +216,13 @@ async function handleApi(wb, req, res, url, publicDir, ai) {
         sendJson(res, 200, { ok: true, insights });
         return;
       }
+      case 'GET /api/island':
+        sendJson(res, 200, { ok: true, supported: island.supported, running: island.running() });
+        return;
+      case 'POST /api/island':
+        // 打开 / 关闭桌面灵动岛：{ action: 'open' | 'close' | 'toggle' } → { supported, running }
+        sendJson(res, 200, { ok: true, ...(await island.handle(body?.action, req.socket.localPort)) });
+        return;
       case 'GET /api/health':
         // build：前端文件的最新修改时间。长期开着的窗口据此发现代码已更新并自动重载。
         sendJson(res, 200, { ok: true, timeZone: wb.timeZone, now: nowSeconds(), build: await publicBuild(publicDir) });
@@ -367,8 +378,9 @@ async function serveStatic(req, res, pathname, publicDir, projectDir) {
 
 // ------------------------------------------------------------------ 入口
 
-export async function start({ port = 0, host = '127.0.0.1', dbPath, timeZone, root, aiConfigPath, fetchImpl } = {}) {
-  const { server, workbench } = createWorkbenchServer({ dbPath, timeZone, root, aiConfigPath, fetchImpl });
+export async function start({ port = 0, host = '127.0.0.1', dbPath, timeZone, root, aiConfigPath, fetchImpl, islandLauncher } = {}) {
+  const { server, workbench } = createWorkbenchServer({ dbPath, timeZone, root, aiConfigPath, fetchImpl,
+    ...(islandLauncher === undefined ? {} : { islandLauncher }) });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, resolve);

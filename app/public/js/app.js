@@ -433,7 +433,7 @@ const actions = {
   resume: () => commands.resume(),
   finish: () => commands.finish(),
   choose: () => dialogs.chooseTaskDialog(),
-  pip: () => { focusChrome.showIsland(false); void pipTimer.toggle(); },
+  pip: () => { focusChrome.showIsland(false); void toggleDesktopIsland(); },
   newTask: () => { focusChrome.toggleCat(false); focusNewTask(); },
   freeFocus: () => { state.freeFocus = true; draw(); notify('已切到自由专注，不绑定任务'); },
 };
@@ -579,6 +579,17 @@ const moduleCtx = {
 const projects = bindProjects($('#projects'), moduleCtx);
 // 番茄钟悬浮小窗（Document Picture-in-Picture，退路为视频画中画），随 tick 与重绘刷新
 const pipTimer = bindPipTimer({ state, commands, taskName, remainingSeconds, notify });
+
+/** 桌面灵动岛（Windows 原生无边框置顶窗口，由本机服务启停）；系统不支持时退回浏览器画中画小窗。 */
+async function toggleDesktopIsland() {
+  try {
+    const r = await api.post('/api/island', { action: 'toggle' });
+    notify(r.running ? '桌面灵动岛已打开，在屏幕顶部' : '桌面灵动岛已关闭');
+  } catch (err) {
+    if (err instanceof ApiError && /不支持/.test(err.message)) { void pipTimer.toggle(); return; }
+    notify(errorText(err), 'bad');
+  }
+}
 
 hydrateIcons();
 if (prefs.get(FOLD_KEY) === '1') setFold(true);

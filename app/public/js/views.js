@@ -160,11 +160,11 @@ export function focusPage(state) {
                  ${icon(open.state === 'running' ? 'pause' : 'play')}${open.state === 'running' ? '暂停计时' : '继续计时'}
                </button>
                <button class="light" data-action="finish">结束并记录</button>
-               <button class="light" data-action="pip" title="一直浮在其他软件上面的小计时窗">悬浮小窗</button>`
+               <button class="light" data-action="pip" title="屏幕顶部的黑色胶囊计时，一直浮在其他软件上面">桌面灵动岛</button>`
             : `<button class="primary" data-action="start">${icon('play')}开始 ${minutesOf(planned)} 分钟</button>
                <button class="link" data-action="choose">${selected ? '换个任务' : '选个任务'}</button>
                ${selected ? '<button class="link" data-action="freeFocus">自由专注</button>' : ''}
-               <button class="link" data-action="pip" title="一直浮在其他软件上面的小计时窗">悬浮小窗</button>`}
+               <button class="link" data-action="pip" title="屏幕顶部的黑色胶囊计时，一直浮在其他软件上面">桌面灵动岛</button>`}
         </div>
         ${open ? '' : `<div class="dialogrow quick"><label>时长
           <select id="planned">

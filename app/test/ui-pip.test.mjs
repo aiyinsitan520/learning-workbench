@@ -33,7 +33,8 @@ const post = (command) => page.evaluate(`
 
 before(async () => {
   dir = mkdtempSync(join(tmpdir(), 'wb-pip-'));
-  app = await start({ port: 0, dbPath: join(dir, 'pip.db'), timeZone: TZ });
+  // islandLauncher: null = 服务端不支持桌面灵动岛 → 前端退回浏览器画中画小窗（本文件测的就是这条退路）
+  app = await start({ port: 0, dbPath: join(dir, 'pip.db'), timeZone: TZ, islandLauncher: null });
   base = app.url.replace(/\/$/, '');
   page = await launch({ timeZone: TZ });
   // 模拟 Document PiP：requestWindow 返回一个普通弹出窗口，记在 window.__pip 方便断言

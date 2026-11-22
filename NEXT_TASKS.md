@@ -209,3 +209,8 @@ Claude 追加：旧 yesterday.test.mjs 仍等 .review-page 画布，v2 看板上
 
 完成｜Claude｜js/pip.js（新）、js/app.js、js/task-notes.js、js/views.js、index.html、app.css、app/test/ui-pip.test.mjs（新）、app/README.md｜2026-11-22 完成任务按钮 + 番茄钟悬浮小窗
 验收：verify\run_all.cmd full PASS（66/66、UI 58/58，新增 3 项）；小窗预览截图（奶糖 Mac、摩卡夜）已检查。真实置顶小窗需用户在 Chrome 里亲手点开验证（内置浏览器拦截非用户点击的弹窗）。
+
+完成｜Claude｜app/island/island.ps1（新）、app/lib/island.js（新）、server.js（/api/island）、js/app.js、js/views.js、index.html、app.css、app/test/island.test.js（新）、ui-pip.test.mjs、app/README.md｜2026-11-22 桌面灵动岛
+原因：浏览器画中画小窗必带黑色标题栏，去不掉；改为 Windows 原生无边框置顶黑色胶囊（WPF，参考 Wisland/Apple）。
+坑：Node spawn 的 PATH 里没有 PowerShell（用完整路径）；detached:true 让 PowerShell 无控制台约 80ms 退出（不用 detached）；被强杀后互斥量「被遗弃」需捕获。
+验收：verify\run_all.cmd full PASS；真实服务上经 /api/island 打开，截图确认顶部居中、显示真实任务。
