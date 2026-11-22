@@ -1,7 +1,7 @@
-﻿# 贾维喵桌面灵动岛：屏幕顶部居中的黑色胶囊，无标题栏、总在最前，悬停弹性展开。
+﻿# 贾维喵桌面灵动岛：屏幕顶部居中的黑色胶囊，无标题栏、总在最前，悬停弹性展开成 Wisland 式磨砂面板。
 # 纯 Windows 自带 WPF 实现，不用安装任何东西；数据走本机学习工作台接口（默认 127.0.0.1:7321）。
-# 外观与交互参考 AsamiAkito/wisland（MIT，Windows 灵动岛：贴边胶囊、悬停弹性展开、拖动）
-# 与 Apple 灵动岛（黑色胶囊、计时用橙色）；DynamicWin 等 WPF 灵动岛同样是无边框透明置顶窗口的做法。
+# 外观与交互参考 AsamiAkito/wisland（MIT，Windows 灵动岛：贴边胶囊、悬停弹性展开、拖动；展开面板的
+# 天蓝→米白磨砂底、眉眼腮红表情、白色胶囊页签、图标+文字快捷操作都照它的主页做）与 Apple 灵动岛（收起态黑色胶囊、计时橙）；DynamicWin 等 WPF 灵动岛同样是无边框透明置顶窗口的做法。
 # 由学习工作台的「桌面灵动岛」按钮（POST /api/island）启动，也可以直接运行本脚本。
 param(
   [int]$Port = 7321,
@@ -31,27 +31,50 @@ $avatar = Join-Path $here '..\..\kitten.png'
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="贾维喵灵动岛" Width="440" Height="190" WindowStyle="None" AllowsTransparency="True"
+        Title="贾维喵灵动岛" Width="680" Height="300" WindowStyle="None" AllowsTransparency="True"
         Background="{x:Null}" Topmost="True" ShowInTaskbar="False" ResizeMode="NoResize"
         FontFamily="Microsoft YaHei UI" UseLayoutRounding="True" SnapsToDevicePixels="True">
   <Window.Resources>
-    <Style x:Key="Pill" TargetType="Button">
-      <Setter Property="Foreground" Value="#FFFFFFFF"/>
-      <Setter Property="Background" Value="#26FFFFFF"/>
-      <Setter Property="FontSize" Value="12.5"/>
-      <Setter Property="Height" Value="30"/>
-      <Setter Property="Margin" Value="0,0,8,0"/>
-      <Setter Property="Padding" Value="14,0"/>
+    <!-- 展开面板的配色取自 Wisland 主页：天蓝→米白的磨砂底、深藏青文字、白色半透明胶囊 -->
+    <SolidColorBrush x:Key="Ink" Color="#FF1B2A40"/>
+    <SolidColorBrush x:Key="Ink2" Color="#B31B2A40"/>
+    <Style x:Key="Round" TargetType="Button">
+      <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+      <Setter Property="Background" Value="#80FFFFFF"/>
+      <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets"/>
+      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="Width" Value="38"/>
+      <Setter Property="Height" Value="38"/>
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Template">
         <Setter.Value>
           <ControlTemplate TargetType="Button">
-            <Border x:Name="b" CornerRadius="15" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+            <Border x:Name="b" CornerRadius="99" Background="{TemplateBinding Background}">
               <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.82"/></Trigger>
-              <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.6"/></Trigger>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#CCFFFFFF"/></Trigger>
+              <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.7"/></Trigger>
+              <Trigger Property="IsEnabled" Value="False"><Setter TargetName="b" Property="Opacity" Value="0.35"/></Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="Quick" TargetType="Button">
+      <Setter Property="Foreground" Value="{StaticResource Ink}"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="2"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="b" CornerRadius="14" Background="{TemplateBinding Background}" Padding="6,8">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#4DFFFFFF"/></Trigger>
+              <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.7"/></Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
         </Setter.Value>
@@ -59,57 +82,110 @@ $avatar = Join-Path $here '..\..\kitten.png'
     </Style>
   </Window.Resources>
   <Grid Background="{x:Null}">
-    <Border x:Name="Island" Width="236" Height="38" CornerRadius="19" Background="#F2050507"
-            HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0" ClipToBounds="True" Cursor="SizeAll">
-      <Border.Effect><DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.35" Color="#000000"/></Border.Effect>
-      <Grid>
-        <!-- 收起态：头像+进度环 · 任务名 · 倒计时 -->
-        <Grid x:Name="Compact" Margin="6,0,14,0" VerticalAlignment="Center" Height="38">
-          <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="30"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
-          </Grid.ColumnDefinitions>
-          <Grid Width="28" Height="28" VerticalAlignment="Center">
-            <Ellipse x:Name="CAvatar" Width="22" Height="22"/>
-            <Ellipse Width="28" Height="28" Stroke="#33FFFFFF" StrokeThickness="2.2"/>
-            <Path x:Name="CRing" Stroke="#FFFF9F0A" StrokeThickness="2.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-          </Grid>
-          <TextBlock x:Name="CTitle" Grid.Column="1" Margin="8,0,8,0" Foreground="#E6FFFFFF" FontSize="12.5"
-                     VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-          <TextBlock x:Name="CTime" Grid.Column="2" Foreground="#FFFF9F0A" FontSize="15" FontWeight="SemiBold"
-                     FontFamily="Segoe UI Variable Display, Segoe UI" VerticalAlignment="Center"/>
+    <Grid x:Name="Island" Width="236" Height="38" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,8,0,0" Cursor="SizeAll">
+      <Grid.Effect><DropShadowEffect BlurRadius="22" ShadowDepth="4" Opacity="0.28" Color="#0B1A30"/></Grid.Effect>
+      <!-- 两层底：收起时黑色胶囊，展开时 Wisland 式磨砂渐变，交叉淡入 -->
+      <Border x:Name="DarkBg" CornerRadius="19" Background="#F2050507"/>
+      <Border x:Name="GlassBg" CornerRadius="19" Opacity="0" BorderThickness="1" BorderBrush="#66FFFFFF">
+        <Border.Background>
+          <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#FF5DB0EE" Offset="0"/>
+            <GradientStop Color="#FF9CC6E6" Offset="0.32"/>
+            <GradientStop Color="#FFD3E0E6" Offset="0.62"/>
+            <GradientStop Color="#FFF4EBDF" Offset="1"/>
+          </LinearGradientBrush>
+        </Border.Background>
+      </Border>
+      <!-- 收起态：头像+进度环 · 任务名 · 倒计时 -->
+      <Grid x:Name="Compact" Margin="6,0,14,0" VerticalAlignment="Center" Height="38">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="30"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <Grid Width="28" Height="28" VerticalAlignment="Center">
+          <Ellipse x:Name="CAvatar" Width="22" Height="22"/>
+          <Ellipse Width="28" Height="28" Stroke="#33FFFFFF" StrokeThickness="2.2"/>
+          <Path x:Name="CRing" Stroke="#FFFF9F0A" StrokeThickness="2.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
         </Grid>
-        <!-- 展开态 -->
-        <Grid x:Name="Expanded" Margin="18,14,18,14" Opacity="0" IsHitTestVisible="False">
-          <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
-          </Grid.RowDefinitions>
-          <DockPanel>
-            <Ellipse x:Name="EAvatar" Width="30" Height="30" Margin="0,0,10,0" DockPanel.Dock="Left"/>
-            <TextBlock x:Name="EStatus" DockPanel.Dock="Right" Foreground="#99FFFFFF" FontSize="11.5" VerticalAlignment="Center"/>
-            <TextBlock x:Name="ETitle" Foreground="#FFFFFFFF" FontSize="14.5" FontWeight="SemiBold" VerticalAlignment="Center"
-                       TextTrimming="CharacterEllipsis" Margin="0,0,10,0"/>
-          </DockPanel>
-          <TextBlock x:Name="ETime" Grid.Row="1" Foreground="#FFFF9F0A" FontSize="40" FontWeight="SemiBold" Margin="0,4,0,0"
-                     FontFamily="Segoe UI Variable Display, Segoe UI"/>
-          <Grid Grid.Row="2" Height="5" Margin="0,2,0,12">
-            <Border CornerRadius="2.5" Background="#26FFFFFF"/>
-            <Border x:Name="EBar" CornerRadius="2.5" Background="#FFFF9F0A" HorizontalAlignment="Left" Width="0"/>
-          </Grid>
-          <StackPanel Grid.Row="3" Orientation="Horizontal" VerticalAlignment="Bottom">
-            <Button x:Name="BtnToggle" Style="{StaticResource Pill}" Background="#FFFF9F0A" Foreground="#FF1C1206" FontWeight="SemiBold" Content="开始"/>
-            <Button x:Name="BtnFinish" Style="{StaticResource Pill}" Content="结束"/>
-            <Button x:Name="BtnDone" Style="{StaticResource Pill}" Content="完成任务"/>
-            <Button x:Name="BtnOpen" Style="{StaticResource Pill}" Content="工作台"/>
-          </StackPanel>
-        </Grid>
+        <TextBlock x:Name="CTitle" Grid.Column="1" Margin="8,0,8,0" Foreground="#E6FFFFFF" FontSize="12.5"
+                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+        <TextBlock x:Name="CTime" Grid.Column="2" Foreground="#FFFF9F0A" FontSize="15" FontWeight="SemiBold"
+                   FontFamily="Segoe UI Variable Display, Segoe UI" VerticalAlignment="Center"/>
       </Grid>
-    </Border>
+      <!-- 展开态：左 专注卡 · 中 表情 · 右 快捷操作（布局参考 Wisland 主页） -->
+      <Grid x:Name="Expanded" Margin="24,16,22,18" Opacity="0" IsHitTestVisible="False">
+        <Grid.RowDefinitions><RowDefinition Height="40"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="236"/><ColumnDefinition Width="*"/><ColumnDefinition Width="168"/>
+        </Grid.ColumnDefinitions>
+        <!-- 顶部：选中的胶囊页签 -->
+        <StackPanel Grid.ColumnSpan="3" Orientation="Horizontal" VerticalAlignment="Center">
+          <Border CornerRadius="18" Background="#B3FFFFFF" Padding="14,6">
+            <StackPanel Orientation="Horizontal">
+              <TextBlock Text="&#xE916;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="14" Foreground="{StaticResource Ink}" VerticalAlignment="Center" Margin="0,0,7,0"/>
+              <TextBlock Text="专注" FontSize="13.5" FontWeight="SemiBold" Foreground="{StaticResource Ink}" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Border>
+          <TextBlock x:Name="ETab" Margin="16,0,0,0" FontSize="12.5" Foreground="{StaticResource Ink2}" VerticalAlignment="Center"/>
+        </StackPanel>
+        <!-- 左：专注卡 -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Center">
+          <StackPanel Orientation="Horizontal">
+            <Border Width="54" Height="54" CornerRadius="16" Background="#73FFFFFF">
+              <Ellipse x:Name="EAvatar" Width="38" Height="38"/>
+            </Border>
+            <StackPanel Margin="12,0,0,0" VerticalAlignment="Center" Width="160">
+              <TextBlock x:Name="ETitle" FontSize="15" FontWeight="Bold" Foreground="{StaticResource Ink}" TextTrimming="CharacterEllipsis"/>
+              <TextBlock x:Name="EStatus" FontSize="12" Foreground="{StaticResource Ink2}" Margin="0,2,0,0"/>
+            </StackPanel>
+          </StackPanel>
+          <TextBlock x:Name="ETime" FontSize="34" FontWeight="SemiBold" Foreground="{StaticResource Ink}" Margin="2,8,0,4"
+                     FontFamily="Segoe UI Variable Display, Segoe UI"/>
+          <Grid Width="214" Height="5" HorizontalAlignment="Left">
+            <Border CornerRadius="2.5" Background="#59FFFFFF"/>
+            <Border x:Name="EBar" CornerRadius="2.5" Background="#FF33496B" HorizontalAlignment="Left" Width="0"/>
+          </Grid>
+          <StackPanel Orientation="Horizontal" Margin="0,12,0,0" HorizontalAlignment="Left">
+            <Button x:Name="BtnFinish" Style="{StaticResource Round}" Content="&#xE71A;" ToolTip="结束本轮并记录"/>
+            <Button x:Name="BtnToggle" Style="{StaticResource Round}" Width="50" Height="50" FontSize="20" Margin="14,0" Background="#B3FFFFFF" Content="&#xE768;"/>
+            <Button x:Name="BtnDone" Style="{StaticResource Round}" Content="&#xE8FB;" ToolTip="完成任务"/>
+          </StackPanel>
+        </StackPanel>
+        <!-- 中：表情（眉眼、腮红、微笑；专注时轻轻呼吸，暂停时嘴角放平） -->
+        <Canvas x:Name="Face" Grid.Row="1" Grid.Column="1" Width="170" Height="96" HorizontalAlignment="Center" VerticalAlignment="Center">
+          <Canvas.RenderTransform><TranslateTransform x:Name="FaceShift" Y="0"/></Canvas.RenderTransform>
+          <Path Data="M 24,34 Q 40,24 58,33" Stroke="{StaticResource Ink}" StrokeThickness="11" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+          <Path Data="M 112,33 Q 130,24 146,34" Stroke="{StaticResource Ink}" StrokeThickness="11" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+          <Ellipse Canvas.Left="10" Canvas.Top="54" Width="32" Height="15" Fill="#E6F2A6B8"/>
+          <Ellipse Canvas.Left="128" Canvas.Top="54" Width="32" Height="15" Fill="#E6F2A6B8"/>
+          <Path x:Name="Mouth" Data="M 72,60 Q 85,72 98,60" Stroke="{StaticResource Ink}" StrokeThickness="6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+        </Canvas>
+        <!-- 右：快捷操作（图标 + 文字，2×2） -->
+        <UniformGrid Grid.Row="1" Grid.Column="2" Rows="2" Columns="2" VerticalAlignment="Center">
+          <Button x:Name="QOpen" Style="{StaticResource Quick}">
+            <StackPanel><TextBlock Text="&#xE80F;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="20" HorizontalAlignment="Center"/>
+              <TextBlock Text="工作台" FontSize="12.5" Margin="0,5,0,0" HorizontalAlignment="Center"/></StackPanel>
+          </Button>
+          <Button x:Name="QPin" Style="{StaticResource Quick}">
+            <StackPanel><TextBlock x:Name="QPinIcon" Text="&#xE718;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="20" HorizontalAlignment="Center"/>
+              <TextBlock x:Name="QPinText" Text="固定展开" FontSize="12.5" Margin="0,5,0,0" HorizontalAlignment="Center"/></StackPanel>
+          </Button>
+          <Button x:Name="QFold" Style="{StaticResource Quick}">
+            <StackPanel><TextBlock Text="&#xE70E;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="20" HorizontalAlignment="Center"/>
+              <TextBlock Text="收起" FontSize="12.5" Margin="0,5,0,0" HorizontalAlignment="Center"/></StackPanel>
+          </Button>
+          <Button x:Name="QClose" Style="{StaticResource Quick}">
+            <StackPanel><TextBlock Text="&#xE711;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="20" HorizontalAlignment="Center"/>
+              <TextBlock Text="关闭" FontSize="12.5" Margin="0,5,0,0" HorizontalAlignment="Center"/></StackPanel>
+          </Button>
+        </UniformGrid>
+      </Grid>
+    </Grid>
   </Grid>
 </Window>
 "@
 $win = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 $el = @{}
-foreach ($n in 'Island','Compact','Expanded','CAvatar','CRing','CTitle','CTime','EAvatar','EStatus','ETitle','ETime','EBar','BtnToggle','BtnFinish','BtnDone','BtnOpen') { $el[$n] = $win.FindName($n) }
+foreach ($n in 'Island','DarkBg','GlassBg','Compact','Expanded','CAvatar','CRing','CTitle','CTime','ETab','EAvatar','EStatus','ETitle','ETime','EBar','BtnToggle','BtnFinish','BtnDone','Face','FaceShift','Mouth','QOpen','QPin','QPinIcon','QPinText','QFold','QClose') { $el[$n] = $win.FindName($n) }
 
 if (Test-Path $avatar) {
   $img = New-Object Windows.Media.Imaging.BitmapImage([Uri](Resolve-Path $avatar).Path)
@@ -133,7 +209,7 @@ function Place-TopCenter {
 $win.Add_SourceInitialized({ Place-TopCenter })
 
 # ---------------------------------------------------------------- 数据
-$state = @{ view = $null; recommended = $null; offset = 0; error = ''; busy = $false; expanded = $false }
+$state = @{ view = $null; recommended = $null; offset = 0; error = ''; busy = $false; expanded = $false; pinned = $false; breathing = $false }
 
 function Get-Json($path) { Invoke-RestMethod -Uri ($base + $path) -TimeoutSec 2 }
 function Send-Command($cmd) {
@@ -201,15 +277,40 @@ function Render {
   else { $el.CTime.Text = $s.status; $el.CTime.FontSize = 12; $el.CTime.Foreground = New-Object Windows.Media.SolidColorBrush($gray) }
   Set-Ring $s.progress $color
   $el.ETitle.Text = $s.title
-  $el.EStatus.Text = $s.status
+  $el.EStatus.Text = $(if ($s.open) { "$($s.status) · 计划 $([Math]::Round($s.planned / 60)) 分钟" } else { $s.status })
+  # 日期按工作台的北京时间（view.day），不用本机时区；演示 / 离线时才退回本机日期
+  $d = if ($state.view.day) { [datetime]::ParseExact($state.view.day, 'yyyy-MM-dd', $null) } else { Get-Date }
+  $el.ETab.Text = ('{0}月{1}日 周{2}' -f $d.Month, $d.Day, '日一二三四五六'[[int]$d.DayOfWeek])
   $el.ETime.Text = $(if ($null -ne $s.left) { Format-Clock $s.left } else { Format-Clock $s.planned })
-  $el.ETime.Foreground = $brush
-  $el.EBar.Width = [Math]::Max(0, (440 - 36 - 36) * $s.progress)
-  $el.EBar.Background = $brush
-  $el.BtnToggle.Content = $(if (-not $s.open) { '开始 25 分钟' } elseif ($s.open.state -eq 'running') { '暂停' } else { '继续' })
+  $el.EBar.Width = [Math]::Max(0, 214 * $s.progress)
+  $running = $s.open -and $s.open.state -eq 'running'
+  # 播放键：空闲 ▶ 开始 / 专注中 ⏸ / 暂停时 ▶ 继续
+  $el.BtnToggle.Content = [string][char]$(if ($running) { 0xE769 } else { 0xE768 })
+  $el.BtnToggle.ToolTip = $(if (-not $s.open) { '开始 25 分钟' } elseif ($running) { '暂停' } else { '继续' })
   $el.BtnToggle.IsEnabled = [bool](-not $state.error -and ($s.open -or $s.taskId))
-  $el.BtnFinish.Visibility = $(if ($s.open) { 'Visible' } else { 'Collapsed' })
-  $el.BtnDone.Visibility = $(if ($s.taskId -and -not $state.error) { 'Visible' } else { 'Collapsed' })
+  $el.BtnFinish.IsEnabled = [bool]$s.open
+  $el.BtnDone.IsEnabled = [bool]($s.taskId -and -not $state.error)
+  Set-Face $(if ($paused) { 'flat' } elseif ($state.error) { 'flat' } else { 'smile' }) $running
+}
+
+# 表情：嘴型（微笑 / 放平），专注中整张脸轻轻上下呼吸
+$faceMood = ''
+function Set-Face([string]$mood, [bool]$breathe) {
+  if ($mood -ne $script:faceMood) {
+    $script:faceMood = $mood
+    $el.Mouth.Data = [Windows.Media.Geometry]::Parse($(if ($mood -eq 'smile') { 'M 72,60 Q 85,72 98,60' } else { 'M 73,64 L 97,64' }))
+  }
+  if ($breathe -ne $state.breathing) {
+    $state.breathing = $breathe
+    if ($breathe) {
+      $a = New-Object Windows.Media.Animation.DoubleAnimation(0, -4, [TimeSpan]::FromMilliseconds(1600))
+      $a.AutoReverse = $true; $a.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+      $e = New-Object Windows.Media.Animation.SineEase; $e.EasingMode = 'EaseInOut'; $a.EasingFunction = $e
+      $el.FaceShift.BeginAnimation([Windows.Media.TranslateTransform]::YProperty, $a)
+    } else {
+      $el.FaceShift.BeginAnimation([Windows.Media.TranslateTransform]::YProperty, $null)
+    }
+  }
 }
 
 # ---------------------------------------------------------------- 弹性展开 / 收起（参考 Wisland：展开约 420ms，带回弹）
@@ -222,10 +323,14 @@ function Animate($target, [double]$to, [int]$ms, [double]$amp) {
 function Set-Expanded([bool]$on) {
   if ($state.expanded -eq $on) { return }
   $state.expanded = $on
-  $w = if ($on) { 404 } else { 236 }; $h = if ($on) { 158 } else { 38 }; $r = if ($on) { 30 } else { 19 }
+  $w = if ($on) { 640 } else { 236 }; $h = if ($on) { 262 } else { 38 }; $r = if ($on) { 36 } else { 19 }
   $el.Island.BeginAnimation([Windows.FrameworkElement]::WidthProperty, (Animate $null $w 420 0.32))
   $el.Island.BeginAnimation([Windows.FrameworkElement]::HeightProperty, (Animate $null $h 420 0.32))
-  $el.Island.CornerRadius = New-Object Windows.CornerRadius($r)
+  foreach ($b in $el.DarkBg, $el.GlassBg) { $b.CornerRadius = New-Object Windows.CornerRadius($r) }
+  $glass = New-Object Windows.Media.Animation.DoubleAnimation($(if ($on) { 1 } else { 0 }), [TimeSpan]::FromMilliseconds(320))
+  $dark = New-Object Windows.Media.Animation.DoubleAnimation($(if ($on) { 0 } else { 1 }), [TimeSpan]::FromMilliseconds(320))
+  $el.GlassBg.BeginAnimation([Windows.UIElement]::OpacityProperty, $glass)
+  $el.DarkBg.BeginAnimation([Windows.UIElement]::OpacityProperty, $dark)
   $fadeIn = New-Object Windows.Media.Animation.DoubleAnimation($(if ($on) { 1 } else { 0 }), [TimeSpan]::FromMilliseconds($(if ($on) { 260 } else { 120 })))
   if ($on) { $fadeIn.BeginTime = [TimeSpan]::FromMilliseconds(140) }
   $fadeOut = New-Object Windows.Media.Animation.DoubleAnimation($(if ($on) { 0 } else { 1 }), [TimeSpan]::FromMilliseconds(160))
@@ -239,10 +344,16 @@ $collapseTimer = New-Object Windows.Threading.DispatcherTimer
 $collapseTimer.Interval = [TimeSpan]::FromMilliseconds(650)
 $collapseTimer.Add_Tick({ $collapseTimer.Stop(); Set-Expanded $false })
 $el.Island.Add_MouseEnter({ $collapseTimer.Stop(); Set-Expanded $true })
-$el.Island.Add_MouseLeave({ if (-not $Expanded) { $collapseTimer.Start() } })
+$el.Island.Add_MouseLeave({ if (-not $Expanded -and -not $state.pinned) { $collapseTimer.Start() } })
 
 # 拖动：按住岛身任意空白处
-$el.Island.Add_MouseLeftButtonDown({ param($s, $e) if ($e.OriginalSource -isnot [Windows.Controls.Button]) { try { $win.DragMove() } catch {} } })
+$el.Island.Add_MouseLeftButtonDown({ param($s, $e)
+  $node = $e.OriginalSource
+  while ($node -and $node -isnot [Windows.Controls.Button] -and $node -ne $el.Island) {
+    $node = if ($node -is [Windows.Media.Visual]) { [Windows.Media.VisualTreeHelper]::GetParent($node) } else { $null }
+  }
+  if ($node -isnot [Windows.Controls.Button]) { try { $win.DragMove() } catch {} }
+})
 
 # ---------------------------------------------------------------- 按钮
 function Do-Action([scriptblock]$fn) {
@@ -272,7 +383,15 @@ $el.BtnDone.Add_Click({
     if ($s.taskId) { Send-Command @{ type = 'setTaskCompleted'; taskId = $s.taskId; completed = $true } }
   }
 })
-$el.BtnOpen.Add_Click({ Start-Process "$base/" })
+$el.QOpen.Add_Click({ Start-Process "$base/" })
+# 固定展开：鼠标移开也不收起（Wisland 的「悬停展开」开关）
+$el.QPin.Add_Click({
+  $state.pinned = -not $state.pinned
+  $el.QPinIcon.Text = [string][char]$(if ($state.pinned) { 0xE840 } else { 0xE718 })
+  $el.QPinText.Text = $(if ($state.pinned) { '取消固定' } else { '固定展开' })
+})
+$el.QFold.Add_Click({ $state.pinned = $false; $el.QPinIcon.Text = [string][char]0xE718; $el.QPinText.Text = '固定展开'; $collapseTimer.Stop(); Set-Expanded $false })
+$el.QClose.Add_Click({ $win.Close() })
 
 # 右键菜单：打开工作台 / 关闭灵动岛
 $menu = New-Object Windows.Controls.ContextMenu
