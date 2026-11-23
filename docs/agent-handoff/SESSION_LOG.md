@@ -17,3 +17,4 @@
 2026-11-23｜Codex｜桌面「数据源」菜单支持本机库和 SSH 隧道到 VPS 的共享库，记住选择并可离线打开本机库。Mac 已更新原应用并备份本地库，实测本机库 0 条、共享库 81 条。Windows/macOS 桌面 smoke 与 full（97/71）通过。
 
 2026-11-23｜Claude（/team，自做未派单）｜灵动岛番茄钟跟随当前日计划（新增 app/public/js/plan-now.js 共用口径，/api/view 加 plan，桌面岛/顶栏岛/专注页/小窗统一），每日总结补全（专注时间线、块结束时刻、新建任务、待办、六节回顾含【时间线】，看板明细加当天记录与收获）。改动见 NEXT_TASKS.md 同日「完成｜Claude」条。验证：verify\run_all.cmd full PASS（服务 102/102、UI 71/71），plan-now.test.js 5/5，临时库实机点开桌面灵动岛核对任务与时长。用量：外部代理 0，主模型用量未知。遗留：旧回顾会显示「记录有更新」，需用户点「重新生成」；新版回顾的真实模型效果未验证。下一位从 app/public/js/plan-now.js 与 app/test/plan-now.test.js 继续。
+2026-11-23｜Codex｜desktop/main.mjs 新增整页缩放和原生菜单，desktop/build.py 保留 Windows 自动更新所需的磁盘版本文件，README 与 DATA_FOR_AI 补充用法，版本升至 1.2.1。full PASS（102/102、71/71）；Windows 桌面 smoke PASS。后续检查 v1.2.1 的 Desktop packages 工作流与已发布更新清单。

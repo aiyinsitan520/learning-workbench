@@ -8,6 +8,18 @@
 
 命令行用法为 `node app/tools/export-ai.mjs --days 30`。可加 `--out <目录>` 自选输出目录，或用 `--db <库路径>` 明确指定离线数据源。相同截止日的导出会覆盖该目录中的同名快照。
 
+## 在 Claude Code 中读取桌面版数据
+
+打开桌面工作台，从「数据源」选择「本机数据库」。在 Claude Code 中指定以下本机地址，即可读取最近 30 天的 Markdown 摘要。
+
+```text
+http://127.0.0.1:17321/api/context?days=30&format=md
+```
+
+Windows 可以通过 `curl.exe -fsS "http://127.0.0.1:17321/api/context?days=30&format=md"` 读取，macOS 将 `curl.exe` 换成 `curl`。如果使用的是源码启动的网页版，端口为 `7321`。
+
+桌面版 v1.2.1 起，可通过「视图」或 `Ctrl / ⌘ + +`、`Ctrl / ⌘ + -`、`Ctrl / ⌘ + 0` 调整整页大小。
+
 ## 数据库字段
 
 | 表 | 主要字段及含义 |

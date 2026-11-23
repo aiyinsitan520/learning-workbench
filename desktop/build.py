@@ -48,7 +48,8 @@ def build(work):
            "--electron-version=" + ELECTRON, "--arch=" + arch,
            "--out=" + str(work), "--app-bundle-id=io.github.aiyinsitan520.learningworkbench"]
     if windows:
-        cmd.append("--icon=" + str(ROOT / "assets/学习工作台.ico"))
+        # The updater in existing Windows releases reads the incoming version directly from disk.
+        cmd.extend(("--no-asar", "--icon=" + str(ROOT / "assets/学习工作台.ico")))
     else:
         icons = work / "Workbench.iconset"
         icons.mkdir()
@@ -64,7 +65,11 @@ def build(work):
     folder = work / f"Learning Workbench-{platform}-{arch}"
     app = folder / "Learning Workbench.app"
     exe = folder / "Learning Workbench.exe" if windows else app / "Contents/MacOS/Learning Workbench"
-    if not windows:
+    if windows:
+        version_file = folder / "resources/app/app/version.json"
+        if json.loads(version_file.read_text(encoding="utf-8"))["version"] != VERSION:
+            raise RuntimeError("Windows updater cannot verify the packaged version")
+    else:
         run("codesign", "--force", "--deep", "--sign", "-", app)
         run("codesign", "--verify", "--deep", "--strict", app)
     run(exe, "--smoke-test", "--user-data-dir=" + str(work / "smoke-profile"), timeout=90)

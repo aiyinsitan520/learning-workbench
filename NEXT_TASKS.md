@@ -284,3 +284,10 @@ tier：easy  risk：low  执行：Codex low  依赖：T-H1
 验收：verify\run_all.cmd full PASS（架构/契约/行为通过、仓储/服务 102/102、浏览器 UI 71/71）；plan-now.test.js 5/5。首次 full 中「保存图片」PNG 等待超 9 秒失败（已知时序抖动，单跑 2/2 通过），等待放宽到约 22 秒，断言含义不变。实机：临时库 + 临时端口启动真实桌面灵动岛，展开态显示「线代第三章习题 · 日计划 20:00–21:30 · 68 分钟」、倒计时 67:45；经 UI 自动化点开始，生成的专注 startedAt+plannedSeconds 恰好等于时间块结束。未碰真实库。
 影响：DayDigest 字段增加 → 已生成的旧回顾会显示「记录有更新」，点「重新生成」即得新版完整回顾（会调用一次模型）。
 未验证：真实模型生成的新版回顾质量（需用户在看板点「重新生成」看效果）；Mac 无桌面灵动岛（仅 Windows）。
+
+工单：让桌面版像浏览器一样调节页面缩放，并发布 v1.2.1。
+可改文件：desktop/main.mjs、desktop/build.py、desktop/release-notes/v1.2.1.md、app/version.json、README.md、docs/DATA_FOR_AI.md、NEXT_TASKS.md、docs/agent-handoff/SESSION_LOG.md
+完成标准：Ctrl/⌘ 和原生菜单可放大、缩小、还原；本机和服务器页面均可缩放；Windows 桌面 smoke、全量验收及三平台发布通过。
+完成｜Codex｜新增桌面「视图」菜单和浏览器式页面缩放，补充 Claude Code 本机摘要说明，修复 Windows 更新器读取新包版本文件的兼容性。
+验收：verify\run_all.cmd full PASS（服务 102/102、浏览器 71/71）；Windows 桌面 smoke PASS，覆盖两种数据源的菜单、快捷键映射和实际页面宽度。
+发布：从此工单的提交打 v1.2.1 标签，由 Desktop packages 工作流产出三平台包和签名更新清单。

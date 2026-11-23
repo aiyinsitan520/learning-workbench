@@ -8,6 +8,7 @@ import { detectInstallMode, installUpdate, readUpdateOutcome } from './update-in
 
 const smoke = process.argv.includes('--smoke-test');
 const sourceLabels = { local: '本机数据库', server: '服务器数据库' };
+const zoomFactors = [0.25, 0.33, 0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
 const windows = new Map();
 let sharedUrl = 'http://127.0.0.1:17322/';
 let activeSource;
@@ -81,7 +82,19 @@ async function savePreferredSource(source) {
   await rename(temporary, preferencesPath);
 }
 
-function setSourceMenu() {
+function zoomPage(contents, direction) {
+  if (direction === 0) {
+    contents.setZoomFactor(1);
+    return;
+  }
+  const current = contents.getZoomFactor();
+  const next = direction > 0
+    ? zoomFactors.find(factor => factor > current + 0.001)
+    : zoomFactors.findLast(factor => factor < current - 0.001);
+  if (next !== undefined) contents.setZoomFactor(next);
+}
+
+function setDesktopMenu() {
   const menu = [
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
     {
@@ -95,12 +108,23 @@ function setSourceMenu() {
           } catch (error) {
             if (!quitting) dialog.showErrorBox('无法切换数据源', error.message);
           } finally {
-            if (!quitting) setSourceMenu();
+            if (!quitting) setDesktopMenu();
           }
         },
       })),
     },
     { role: 'editMenu' },
+    {
+      label: '视图',
+      submenu: [
+        { id: 'zoom-in', label: '放大', accelerator: 'CommandOrControl+Plus',
+          click: (_item, win) => { if (win) zoomPage(win.webContents, 1); } },
+        { id: 'zoom-out', label: '缩小', accelerator: 'CommandOrControl+-',
+          click: (_item, win) => { if (win) zoomPage(win.webContents, -1); } },
+        { id: 'zoom-reset', label: '实际大小（100%）', accelerator: 'CommandOrControl+0',
+          click: (_item, win) => { if (win) zoomPage(win.webContents, 0); } },
+      ],
+    },
     { role: 'windowMenu' },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(menu));
@@ -132,6 +156,16 @@ function createWindow(source, url, bounds) {
   };
   win.webContents.on('will-navigate', stayOnSource);
   win.webContents.on('will-redirect', stayOnSource);
+  win.webContents.on('before-input-event', (event, input) => {
+    const primaryModifier = process.platform === 'darwin'
+      ? input.meta && !input.control
+      : input.control && !input.meta;
+    if (input.type !== 'keyDown' || !primaryModifier || input.alt) return;
+    const direction = { '=': 1, '+': 1, '-': -1, '0': 0 }[input.key];
+    if (direction === undefined) return;
+    event.preventDefault();
+    zoomPage(win.webContents, direction);
+  });
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://github.com/' + UPDATE_CONFIG.repo + '/')) void shell.openExternal(url);
     return { action: 'deny' };
@@ -166,7 +200,7 @@ async function selectSource(source, { remember = true } = {}) {
       next.show();
       if (previous && !previous.isDestroyed()) previous.hide();
     }
-    setSourceMenu();
+    setDesktopMenu();
     if (remember) await savePreferredSource(source);
   } finally {
     switching = false;
@@ -217,6 +251,7 @@ async function checkDesktop() {
         || await readPreferredSource() !== source) {
         throw new Error('Desktop did not select the expected data source: ' + source);
       }
+      await checkPageZoom(win);
     }
     const localWindow = windows.get('local');
     await selectSource('local');
@@ -238,4 +273,35 @@ async function checkDesktop() {
   }
   await writeFile(join(app.getPath('userData'), 'smoke-result.txt'), 'Desktop smoke PASS');
   app.quit();
+}
+
+async function checkPageZoom(win) {
+  const { webContents } = win;
+  const zoomMenu = Menu.getApplicationMenu();
+  const initialWidth = await webContents.executeJavaScript('window.innerWidth');
+  for (const [id, factor] of [['zoom-in', 1.1], ['zoom-out', 1], ['zoom-out', 0.9], ['zoom-reset', 1]]) {
+    const item = zoomMenu.getMenuItemById(id);
+    item.click({}, win, webContents);
+    if (Math.abs(webContents.getZoomFactor() - factor) > 0.001) {
+      throw new Error('Desktop zoom menu failed: ' + id);
+    }
+  }
+  const modifiers = process.platform === 'darwin' ? { meta: true } : { control: true };
+  for (const [key, factor] of [['=', 1.1], ['+', 1.25], ['-', 1.1], ['0', 1]]) {
+    let handled = false;
+    webContents.emit('before-input-event', { preventDefault() { handled = true; } },
+      { type: 'keyDown', key, ...modifiers });
+    if (!handled || Math.abs(webContents.getZoomFactor() - factor) > 0.001) {
+      throw new Error('Desktop zoom shortcut failed: ' + key);
+    }
+    const expectedWidth = initialWidth / factor;
+    const width = await webContents.executeJavaScript(`(async () => {
+      for (let i = 0; i < 30; i++) {
+        if (Math.abs(window.innerWidth - ${expectedWidth}) < 3) break;
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      return window.innerWidth;
+    })()`);
+    if (Math.abs(width - expectedWidth) >= 3) throw new Error('Desktop zoom did not resize the page: ' + key);
+  }
 }
