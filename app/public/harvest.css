@@ -1,1 +1,74 @@
-/* 收获速记页面样式（工单 T-H2 实现）。只引用 tokens.css 的令牌，不写颜色值。 */
+/* 收获页与采集弹窗共用工作台的皮肤令牌。 */
+.harvest-page,.harvest-dialog{min-width:0;overflow-wrap:anywhere}
+.harvest-header,.harvest-tools,.harvest-cardhead,.harvest-cardfoot{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap
+}
+.harvest-actions,.harvest-tags{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.harvest-tools{align-items:end;margin-bottom:12px}
+.harvest-tools .harvest-field{flex:1 1 180px;max-width:440px}
+.harvest-shortcut{color:var(--muted);font-size:12px}
+.harvest-page kbd{
+  display:inline-block;padding:1px 6px;border:1px solid var(--line);border-radius:var(--radius-xs);
+  background:var(--surface-2);color:var(--ink-2);font:inherit
+}
+.harvest-chip{
+  padding:3px 9px;border:1px solid var(--line);border-radius:var(--radius-btn);
+  background:var(--surface-2);color:var(--ink-2);font-size:12px;max-width:100%
+}
+button.harvest-chip:hover,button.harvest-chip[aria-pressed="true"]{
+  border-color:var(--accent-line);background:var(--accent-soft);color:var(--accent-ink)
+}
+.harvest-chip small{margin-left:3px;font-size:inherit}
+.harvest-page [data-harvest-status]:not(:empty){margin:9px 0}
+.harvest-list{display:grid;gap:var(--gap);margin-top:10px}
+.harvest-card{
+  min-width:0;padding:16px 18px;border:1px solid var(--line);border-radius:var(--radius-m);
+  background:var(--surface);color:var(--ink);box-shadow:var(--shadow-1)
+}
+.harvest-cardhead{align-items:baseline}
+.harvest-cardhead h2{font-size:17px;font-weight:600;color:var(--ink)}
+.harvest-cardhead time{color:var(--muted);font:12px var(--num)}
+.harvest-conclusion{margin-top:9px;white-space:pre-wrap}
+.harvest-points,.harvest-empty ol{margin:8px 0 0;padding-inline-start:1.5em;color:var(--ink-2)}
+.harvest-points li+li,.harvest-empty li+li{margin-top:4px}
+.harvest-todos{margin-top:12px;padding:10px 12px;border-radius:var(--radius-s);background:var(--surface-2)}
+.harvest-todos ul{margin:5px 0 0;padding:0;list-style:none}
+.harvest-todos li{
+  display:flex;align-items:center;justify-content:space-between;gap:6px 14px;flex-wrap:wrap;padding:4px 0
+}
+.harvest-todos li+li{border-top:1px solid var(--line)}
+.harvest-todos li>span{flex:1 1 150px;min-width:0}
+.harvest-todos s,.harvest-joined{color:var(--muted)}
+.harvest-joined{font-size:12px}
+.harvest-cardfoot{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.harvest-cardfoot .harvest-actions{margin-inline-start:auto}
+.harvest-more{margin-top:12px}
+.harvest-field{display:grid;gap:3px;min-width:0;color:var(--ink-2);font-size:13px}
+.harvest-field :is(input,textarea,select){
+  display:block;width:100%;min-width:0;padding:7px 9px;border:1px solid var(--line-strong);
+  border-radius:var(--radius-s);background:var(--surface);color:var(--ink)
+}
+.harvest-field :is(input,textarea)::placeholder{color:var(--muted)}
+.harvest-field textarea{resize:vertical}
+dialog:has(.harvest-dialog){max-width:650px}
+.harvest-dialog h2{padding-inline-end:22px;margin-bottom:12px}
+.harvest-dialog :is([data-harvest-hint],.harvest-error,[data-harvest-capture-actions]){margin-top:8px}
+.harvest-error{color:var(--danger);font-size:13px}
+.harvest-preview{margin-top:12px}
+.harvest-preview fieldset{
+  display:grid;gap:9px;min-width:0;margin:0;padding:10px 12px 12px;border:1px solid var(--line);
+  border-radius:var(--radius-m);background:var(--surface-2)
+}
+.harvest-preview legend{padding:0 6px;color:var(--ink-2);font-size:13px;font-weight:600}
+.harvest-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.harvest-dialog-actions{justify-content:flex-end;margin-top:5px}
+@media(max-width:480px){
+  .harvest-card{padding:12px}
+  .harvest-cardfoot .harvest-actions{margin-inline-start:0}
+  .harvest-fields{grid-template-columns:minmax(0,1fr)}
+  dialog:has(.harvest-dialog){padding-inline:16px}
+}
+@media(prefers-reduced-motion:reduce){
+  dialog[open]:has(.harvest-dialog){animation:none}
+  .harvest-page button,.harvest-dialog button{transition:none;transform:none}
+}
