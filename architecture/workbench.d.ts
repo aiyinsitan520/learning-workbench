@@ -81,6 +81,19 @@ export interface WorkbenchView {
   projects: readonly ProjectView[]; // v2：当天在进行的项目（已开始、未归档；当天之后才完成的也算）
 }
 
+/**
+ * GET /api/view?day=&prefer= → { ok, view: WorkbenchView, recommended: Task | null, plan: PlanNow | null, focusLog, stats }
+ * plan（2026-11-23）：只在看「今天」时有值，口径见 app/public/js/plan-now.js。没有 prefer 时 recommended 就是 plan 的任务。
+ * 番茄钟（网页、顶栏灵动岛、桌面灵动岛）空闲时按它定任务和时长：phase=now 时长到块结束，phase=next 时长为块的计划时长。
+ */
+export interface PlanNow {
+  phase: "now" | "next";
+  blockId: string; taskId: string; title: string;
+  startsAt: number; endsAt: number;
+  seconds: number;              // 按服务端当前时刻算的建议时长；phase=now 时随时间减少，客户端用 endsAt 自己推算
+  start: string; end: string;   // HH:MM（工作台时区）
+}
+
 /** Caller supplies stable creation IDs so an interrupted request can be retried. POST /api/command */
 export type Command =
   | { type: "createTask"; id: string; title: string; course: string; estimatedSeconds: number | null; projectId?: string | null }
@@ -116,7 +129,10 @@ export interface Workbench {
 }
 
 // ------------------------------------------------------------- v2: 每日维护（app/lib/digest.js）
-/** GET /api/review?day=YYYY-MM-DD（默认昨天）→ { ok, digest, factsHash, review, today } */
+/**
+ * GET /api/review?day=YYYY-MM-DD（默认昨天）→ { ok, digest, factsHash, review, notes, harvests, today }
+ * notes：当天写过/接触过正文的任务 { taskId, title, edited, firstTime }（不含正文）；harvests：当天收获 { id, title, conclusion, tags }。
+ */
 export interface DayDigest {
   day: StudyDay;
   weekday: string;              // '周六'
@@ -126,10 +142,12 @@ export interface DayDigest {
     sessions: number;
     seconds: number;
     byTask: { taskId: string | null; title: string; seconds: number; sessions: number }[]; // 秒数降序；taskId=null 为自由专注
+    timeline: { taskId: string | null; title: string; start: string; end: string; minutes: number }[]; // 2026-11-23：每轮起止 HH:MM，按时间升序；end = 开始 + 实际累计
   };
+  created: { id: string; title: string; course: string; projectId: string | null }[]; // 2026-11-23：当天新建的任务
   plan: {
     blocks: {
-      id: string; taskId: string; title: string; start: string /* HH:MM */; startsAt: number; minutes: number;
+      id: string; taskId: string; title: string; start: string /* HH:MM */; end: string /* HH:MM，2026-11-23 */; startsAt: number; minutes: number;
       planOnly: boolean; projectId: string | null; taskDone: boolean; focusSeconds: number;
     }[];
     plannedSeconds: number;

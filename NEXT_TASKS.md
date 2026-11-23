@@ -263,7 +263,7 @@ tier：easy  risk：low  执行：Codex low  依赖：T-H1
 完成｜Claude｜T-H1 收获数据层与提炼接口｜2026-11-23
 改动：architecture/migrations/004_harvests.sql（新）、workbench.d.ts（v4 一节）、app/lib/db.js（readHarvests/readHarvestsOnDay/readHarvest/createHarvest/updateHarvest/deleteHarvest/promoteHarvestTodo，SCHEMA_VERSION=4）、app/lib/ai-routes.js（POST /api/ai/distill）、app/server.js（GET /api/harvests、四个命令、备份表加 harvests）、app/public/js/harvest-format.js（新，页面与服务端共用的解析器和 ChatGPT 口令）、harvest.js/harvest.css（占位，T-H2 替换）、index.html、js/app.js（第 6 页「收获」、Ctrl/⌘+Shift+V）、js/views.js、js/icons.js、app/test/harvest.test.js（新，10 项）。
 改动旧断言（理由：版本和页面数按设计增加）：v2/review 测试的 user_version 3→4；server 导出表清单加 harvests；ui 顶栏工具 5→6 个、名称加「收获」。
-验收：node --test app/test/harvest.test.js 10/10；verifyun_all.cmd full PASS（架构 17×2、契约 11、行为 17、仓储/服务 93/93、浏览器 UI 61/61）。
+验收：node --test app/test/harvest.test.js 10/10；verify\run_all.cmd full PASS（架构 17×2、契约 11、行为 17、仓储/服务 93/93、浏览器 UI 61/61）。
 未做：7321 服务未重启（真实库仍是 v3，重启时自动迁移并备份），等 T-H2/T-H3 完成后统一重启。
 完成｜Codex｜T-H2 收获页面（7f85c05）｜2026-11-23：粘贴框（固定格式即时解析、用 AI 提炼、手填）、收获页（口令复制、搜索、标签、加载更多、编辑/复制/删除）、待办「加入待办」「排进今天」。ui-harvest.test.mjs 10/10。Claude 验收补两处边界：凌晨从 06:00 起排、恰好到 24:00 允许。用量 Codex high 约 17.5 分钟，输入 292.6 万（缓存 257.6 万）、输出 2.2 万 token。
 完成｜Codex｜T-H3 收获进入回顾与快照（9a5fb77）｜2026-11-23：reviewMaterial/reviewHash（无收获时指纹不变）、/api/context JSON 与 Markdown、AI 回顾提示词、docs/收获速记.md、DATA_FOR_AI.md、README。harvest-review.test.js 4/4。用量 Codex low 约 6 分钟，输入 74.7 万（缓存 68.3 万）、输出 0.58 万 token。
@@ -277,3 +277,10 @@ tier：easy  risk：low  执行：Codex low  依赖：T-H1
 可改文件：desktop/main.mjs、NEXT_TASKS.md、docs/agent-handoff/SESSION_LOG.md
 完成标准：保留两套数据并清楚标记活动数据源，离线可访问本机，原生桌面切换与 verify\run_all.cmd full 通过。
 完成｜Codex｜桌面数据源切换及 Mac 安装。Windows/macOS 桌面 smoke PASS，full PASS（97 项服务、71 项浏览器）；Mac 共享库 81 条记录可读。
+完成｜Claude（/team，未派单）｜app/public/js/plan-now.js（新）、app/public/js/app.js、focus.js、pip.js、views.js、board.js、review.js、app/server.js、app/lib/digest.js、app/lib/ai-routes.js、app/island/island.ps1、architecture/workbench.d.ts、app/test/plan-now.test.js（新）、yesterday.test.mjs｜2026-11-23 灵动岛番茄钟跟随当前计划 + 每日总结补全
+用户原话：「每日总结不够全面，灵动岛的番茄钟和现在的计划时间不匹配，修复这个BUG」
+根因：① 桌面灵动岛空闲时写死 25 分钟、开始时也是 1500 秒；任务取 recommend()，它返回「当天最早的未完成时间块」，早上的块过了也一直推荐它。网页顶栏灵动岛显示「开始 预计时长」，实际却按专注页下拉的 25 分钟开始，两边也对不上。② 回顾素材只有按任务汇总的专注，没有每轮起止时刻、时间块结束时刻、当天新建任务和待办清单；提示词 300–600 字、只要求五节，看板明细也看不到当天记录和收获。
+做法：新增共用口径 plan-now.js（服务端与页面同用）：处在时间块里 → 番茄钟到块结束；块未开始 → 块的计划时长；没有计划 → 25 分钟；手动选过时长则用手选。/api/view 新增 plan（只在看今天时有），没有 prefer 时 recommended 跟 plan 走。桌面灵动岛、顶栏灵动岛、专注页（下拉新增「跟随计划」）、悬浮小窗都按它显示和开始。每日总结：DayDigest 加 focus.timeline、plan.blocks[].end、created；回顾素材加 pending；提示词改六节（新增【时间线】逐块对照计划与实际，完成项逐一点名、项目进展逐个说明），500–1000 字，max_tokens 2600、存储上限 3000 字；/api/review 附 notes（仅标题，不含正文）与 harvests；看板「当天明细」加专注时间线、当天记录、当天收获、新建任务；无模型时的本地摘要补全时长、执行率、记录与收获数。
+验收：verify\run_all.cmd full PASS（架构/契约/行为通过、仓储/服务 102/102、浏览器 UI 71/71）；plan-now.test.js 5/5。首次 full 中「保存图片」PNG 等待超 9 秒失败（已知时序抖动，单跑 2/2 通过），等待放宽到约 22 秒，断言含义不变。实机：临时库 + 临时端口启动真实桌面灵动岛，展开态显示「线代第三章习题 · 日计划 20:00–21:30 · 68 分钟」、倒计时 67:45；经 UI 自动化点开始，生成的专注 startedAt+plannedSeconds 恰好等于时间块结束。未碰真实库。
+影响：DayDigest 字段增加 → 已生成的旧回顾会显示「记录有更新」，点「重新生成」即得新版完整回顾（会调用一次模型）。
+未验证：真实模型生成的新版回顾质量（需用户在看板点「重新生成」看效果）；Mac 无桌面灵动岛（仅 Windows）。

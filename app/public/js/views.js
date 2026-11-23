@@ -2,6 +2,7 @@
 
 import { esc, icon } from './icons.js';
 import { zoneWall } from './dom.js';
+import { focusSecondsFor, planOfState } from './plan-now.js';
 
 // 中央五页。书写统一在任务正文里完成，旧的「学习笔记 / 学习流程」页已撤下。
 export const PAGES = {
@@ -136,8 +137,12 @@ export function focusPage(state) {
   const open = view.openFocus;
   const selected = state.selectedTaskId ? taskTitle(view, state.selectedTaskId) : null;
   const task = open?.taskId ? { title: taskTitle(view, open.taskId) } : null;
-  const planned = open?.plannedSeconds ?? state.focusPlanned;
-  const remaining = state.focusRemaining ?? planned;
+  const focusTaskId = state.freeFocus ? null : state.selectedTaskId;
+  // 没手动选时长、且要专注的正是当前计划：时长跟计划走，到时间块结束为止
+  const plan = planOfState(state);
+  const followPlan = !open && !state.focusPlanned && plan && focusTaskId === plan.taskId ? plan : null;
+  const planned = open?.plannedSeconds ?? focusSecondsFor(state, focusTaskId);
+  const remaining = planned;
   const label = open
     ? esc(task?.title ?? '自由专注')
     : esc(state.freeFocus || !selected ? '自由专注' : selected);
@@ -155,7 +160,9 @@ export function focusPage(state) {
             : `已暂停 · 已累计 ${mmss(open.elapsedSeconds)}`
           : (state.freeFocus || !selected
               ? `自由专注，不绑定任务 · ${minutesOf(planned)} 分钟`
-              : `给这一项留出 ${minutesOf(planned)} 分钟`)}</p>
+              : followPlan
+                ? `跟随日计划 ${clockOf(followPlan.startsAt, view.timeZone)}–${clockOf(followPlan.endsAt, view.timeZone)}${followPlan.phase === 'now' ? ' · 到时间块结束' : ''}`
+                : `给这一项留出 ${minutesOf(planned)} 分钟`)}</p>
         <div class="actions">
           ${open
             ? `<button class="primary" data-action="${open.state === 'running' ? 'pause' : 'resume'}">
@@ -170,7 +177,8 @@ export function focusPage(state) {
         </div>
         ${open ? '' : `<div class="dialogrow quick"><label>时长
           <select id="planned">
-            ${[15, 25, 45, 60].map((m) => `<option value="${m * 60}" ${m * 60 === planned ? 'selected' : ''}>${m} 分钟</option>`).join('')}
+            ${followPlan ? `<option value="" selected>跟随计划（${minutesOf(planned)} 分钟）</option>` : ''}
+            ${[15, 25, 45, 60].map((m) => `<option value="${m * 60}" ${!followPlan && m * 60 === planned ? 'selected' : ''}>${m} 分钟</option>`).join('')}
           </select></label></div>`}
     </section>
     <section class="sheet focus-log" aria-labelledby="focusLogTitle">

@@ -39,11 +39,25 @@ export function dayDigest(wb, day, timeZone = wb.timeZone) {
   }
   const focusOf = (taskId) => byTask.get(taskId)?.seconds ?? 0;
 
+  // 专注时间线：每一轮已结束的专注几点开始、几点结束（结束 = 开始 + 实际累计，暂停过的会比墙钟短）
+  const timeline = [...log].sort((a, b) => a.startedAt - b.startedAt).map((f) => ({
+    taskId: f.taskId ?? null,
+    title: f.taskTitle ?? '自由专注',
+    start: clock(f.startedAt, timeZone),
+    end: clock(f.startedAt + f.elapsedSeconds, timeZone),
+    minutes: Math.round(f.elapsedSeconds / 60),
+  }));
+  const { start: dayStart, end: dayEnd } = view.range;
+  const created = wb.db.prepare(
+    'SELECT id, title, course, project_id FROM tasks WHERE created_at >= ? AND created_at < ? ORDER BY created_at, id',
+  ).all(dayStart, dayEnd).map((t) => ({ id: t.id, title: t.title, course: t.course ?? '', projectId: t.project_id ?? null }));
+
   const blocks = view.scheduled.map((b) => ({
     id: b.id,
     taskId: b.taskId,
     title: b.task.title,
     start: clock(b.startsAt, timeZone),
+    end: clock(b.startsAt + b.plannedSeconds, timeZone),
     startsAt: b.startsAt,
     minutes: Math.round(b.plannedSeconds / 60),
     planOnly: b.task.course === PLAN_COURSE,
@@ -64,7 +78,9 @@ export function dayDigest(wb, day, timeZone = wb.timeZone) {
       sessions: view.focusSummary.finishedSessions,
       seconds: view.focusSummary.elapsedSeconds,
       byTask: [...byTask.values()].sort((a, b) => b.seconds - a.seconds),
+      timeline,
     },
+    created,
     plan: {
       blocks,
       plannedSeconds,
@@ -118,7 +134,9 @@ export function reviewMaterial(wb, day, timeZone = wb.timeZone) {
       reviewExcerpt: review ? review.text.replace(/\s+/g, ' ').slice(0, 160) : '',
     });
   }
-  return { digest, notes, recent, harvests: harvestsOnDay(wb, day) };
+  // 还没做完的待办（标题）：写「明天建议」用；不进回顾指纹，待办变化不会让旧回顾显示「记录有更新」
+  const pending = wb.readDay(day, timeZone).pending.slice(0, 15).map((t) => t.title);
+  return { digest, notes, recent, harvests: harvestsOnDay(wb, day), pending };
 }
 
 /** 回顾的指纹只依赖当天的统计、正文和收获。无收获时沿用旧指纹。 */

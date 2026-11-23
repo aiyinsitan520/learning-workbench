@@ -209,7 +209,7 @@ function Place-TopCenter {
 $win.Add_SourceInitialized({ Place-TopCenter })
 
 # ---------------------------------------------------------------- 数据
-$state = @{ view = $null; recommended = $null; offset = 0; error = ''; busy = $false; expanded = $false; pinned = $false; breathing = $false }
+$state = @{ view = $null; recommended = $null; plan = $null; offset = 0; error = ''; busy = $false; expanded = $false; pinned = $false; breathing = $false }
 
 function Get-Json($path) { Invoke-RestMethod -Uri ($base + $path) -TimeoutSec 2 }
 function Send-Command($cmd) {
@@ -231,7 +231,7 @@ function Refresh-Data {
   try {
     if (-not $state.synced) { $h = Get-Json '/api/health'; $state.offset = [int]$h.now - [int][DateTimeOffset]::UtcNow.ToUnixTimeSeconds(); $state.synced = $true }
     $p = Get-Json '/api/view'
-    $state.view = $p.view; $state.recommended = $p.recommended; $state.error = ''
+    $state.view = $p.view; $state.recommended = $p.recommended; $state.plan = $p.plan; $state.error = ''
   } catch { $state.error = '学习工作台没有运行' }
 }
 
@@ -245,6 +245,15 @@ function Get-Snapshot {
     $left = [Math]::Max(0, $left)
     return @{ title = (Find-Title $open.taskId); status = $(if ($open.state -eq 'running') { '专注中' } else { '已暂停' });
       left = $left; planned = [int]$open.plannedSeconds; progress = 1 - $left / [double]$open.plannedSeconds; open = $open; taskId = $open.taskId }
+  }
+  # 空闲：跟随日计划。正处在时间块里 → 时长 = 到块结束还剩的时间；块还没开始 → 时长 = 块的计划时长（口径同 app/public/js/plan-now.js）
+  $plan = $state.plan
+  if ($plan) {
+    $secs = if ($plan.phase -eq 'now') { [int]$plan.endsAt - (Now-Server) } else { [int]$plan.seconds }
+    if ($secs -ge 60) {
+      $status = if ($plan.phase -eq 'now') { "到 $($plan.end)" } else { "$($plan.start) 开始" }
+      return @{ title = $plan.title; status = $status; left = $null; planned = $secs; progress = 0; open = $null; taskId = $plan.taskId; plan = $plan }
+    }
   }
   $rec = $state.recommended
   return @{ title = $(if ($rec) { $rec.title } else { '贾维喵 · 待专注' }); status = '待专注'; left = $null; planned = 1500; progress = 0; open = $null; taskId = $rec.id }
@@ -277,7 +286,8 @@ function Render {
   else { $el.CTime.Text = $s.status; $el.CTime.FontSize = 12; $el.CTime.Foreground = New-Object Windows.Media.SolidColorBrush($gray) }
   Set-Ring $s.progress $color
   $el.ETitle.Text = $s.title
-  $el.EStatus.Text = $(if ($s.open) { "$($s.status) · 计划 $([Math]::Round($s.planned / 60)) 分钟" } else { $s.status })
+  $el.EStatus.Text = $(if ($s.open) { "$($s.status) · 计划 $([Math]::Round($s.planned / 60)) 分钟" }
+    elseif ($s.plan) { "日计划 $($s.plan.start)–$($s.plan.end) · $([Math]::Ceiling($s.planned / 60)) 分钟" } else { $s.status })
   # 日期按工作台的北京时间（view.day），不用本机时区；演示 / 离线时才退回本机日期
   $d = if ($state.view.day) { [datetime]::ParseExact($state.view.day, 'yyyy-MM-dd', $null) } else { Get-Date }
   $el.ETab.Text = ('{0}月{1}日 周{2}' -f $d.Month, $d.Day, '日一二三四五六'[[int]$d.DayOfWeek])
@@ -286,7 +296,7 @@ function Render {
   $running = $s.open -and $s.open.state -eq 'running'
   # 播放键：空闲 ▶ 开始 / 专注中 ⏸ / 暂停时 ▶ 继续
   $el.BtnToggle.Content = [string][char]$(if ($running) { 0xE769 } else { 0xE768 })
-  $el.BtnToggle.ToolTip = $(if (-not $s.open) { '开始 25 分钟' } elseif ($running) { '暂停' } else { '继续' })
+  $el.BtnToggle.ToolTip = $(if (-not $s.open) { "开始 $([Math]::Ceiling($s.planned / 60)) 分钟" } elseif ($running) { '暂停' } else { '继续' })
   $el.BtnToggle.IsEnabled = [bool](-not $state.error -and ($s.open -or $s.taskId))
   $el.BtnFinish.IsEnabled = [bool]$s.open
   $el.BtnDone.IsEnabled = [bool]($s.taskId -and -not $state.error)
@@ -365,8 +375,9 @@ $el.BtnToggle.Add_Click({
   Do-Action {
     $open = $state.view.openFocus
     if (-not $open) {
-      $taskId = $state.recommended.id
-      Send-Command @{ type = 'startFocus'; id = 'focus-' + [guid]::NewGuid().ToString(); taskId = $taskId; plannedSeconds = 1500 }
+      # 开始时的任务和时长与岛上显示的一致：有当前计划就按计划（到时间块结束），否则推荐任务 25 分钟
+      $s = Get-Snapshot
+      Send-Command @{ type = 'startFocus'; id = 'focus-' + [guid]::NewGuid().ToString(); taskId = $s.taskId; plannedSeconds = [int]$s.planned }
     } else {
       Send-Command @{ type = 'changeFocus'; id = $open.id; expectedRevision = [int]$open.revision; action = $(if ($open.state -eq 'running') { 'pause' } else { 'resume' }) }
     }

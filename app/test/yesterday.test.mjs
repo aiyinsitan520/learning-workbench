@@ -151,7 +151,8 @@ test('每日维护看板：默认昨天、AI 失败提示、生成成功与缓�
     await page.click('[data-board-export]');
     const path = join(downloads, `${yesterday}-每日维护.png`);
     let png;
-    for (let i = 0; i < 120 && !png; i += 1) {
+    // 全套连跑时浏览器负载高，导出偶尔超过 9 秒（2026-11-21、11-23 各见一次），放宽到约 22 秒
+    for (let i = 0; i < 300 && !png; i += 1) {
       png = await readFile(path).catch(() => null);
       if (!png) await new Promise((resolve) => setTimeout(resolve, 75));
     }

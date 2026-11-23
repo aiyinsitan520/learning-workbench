@@ -4,6 +4,7 @@
 // 复制样式表进小窗、监听关闭事件、视频的播放/暂停映射成继续/暂停。
 // 与 tomodoro 不同：这里不把主页面元素搬进小窗（专注页会整页重绘），而是小窗自绘一份，随 tick 刷新。
 import { mmss } from './views.js';
+import { focusSecondsFor } from './plan-now.js';
 
 /**
  * @param {object} ctx
@@ -29,7 +30,7 @@ export function bindPipTimer({ state, commands, taskName, remainingSeconds, noti
     const open = state.view?.openFocus ?? null;
     const selected = state.selectedTaskId && !state.freeFocus ? state.selectedTaskId : null;
     const taskId = open ? open.taskId : selected;
-    const planned = open?.plannedSeconds ?? state.focusPlanned;
+    const planned = open?.plannedSeconds ?? focusSecondsFor(state, taskId);
     const left = open ? Math.max(0, remainingSeconds(open)) : planned;
     return {
       open,

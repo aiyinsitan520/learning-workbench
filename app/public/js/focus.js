@@ -2,6 +2,7 @@
 // 只负责画和开关；开始 / 暂停 / 结束等写操作由 app.js 的 commands 执行。
 import { $ } from './dom.js';
 import { catPanel, mmss } from './views.js';
+import { focusSecondsFor } from './plan-now.js';
 
 /** 开放专注还剩多少秒（运行中按墙钟推算，暂停时按已累计）。 */
 export function remainingSeconds(open, nowSeconds = Math.floor(Date.now() / 1000)) {
@@ -36,7 +37,8 @@ export function bindFocusChrome({ state, commands, taskName }) {
       act.textContent = open.state === 'running' ? '暂停计时' : '继续计时';
       act.disabled = false;
     } else {
-      act.textContent = `开始 ${Math.round((rec?.estimatedSeconds ?? state.focusPlanned) / 60)} 分钟`;
+      // 和真正开始时的时长同一口径：跟随当前计划时间块，否则手选时长或 25 分钟
+      act.textContent = `开始 ${Math.round(focusSecondsFor(state, state.freeFocus ? null : state.selectedTaskId) / 60)} 分钟`;
       act.disabled = !rec;
     }
   }

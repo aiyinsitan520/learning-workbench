@@ -14,6 +14,7 @@ import { showBoard } from './board.js';
 import { showAiSettings } from './ai-settings.js';
 import { bindProjects } from './projects.js';
 import { bindPipTimer } from './pip.js';
+import { focusSecondsFor } from './plan-now.js';
 import { bindUpdates } from './update.js';
 import { showHarvest, openHarvestCapture } from './harvest.js';
 import {
@@ -44,9 +45,9 @@ const state = {
   selectedTaskId: null,
   editorTaskId: null,
   editorBlockId: null,
-  focusPlanned: 1500,
+  // 手动选的番茄钟时长（秒）；null = 跟随当前计划时间块，没有对应计划时 25 分钟（见 plan-now.js）
+  focusPlanned: null,
   freeFocus: false,
-  focusRemaining: 1500,
   scrolls: {},
   pendingScroll: null,
   busy: false,
@@ -270,7 +271,7 @@ function tick() {
   const open = state.view?.openFocus;
   const clock = $('#clock');
   if (!open) {
-    if (clock) clock.textContent = mmss(state.focusRemaining);
+    if (clock) clock.textContent = mmss(focusSecondsFor(state, state.freeFocus ? null : state.selectedTaskId));
     return;
   }
   const left = remainingSeconds(open);
@@ -315,7 +316,7 @@ const commands = {
   start: async () => {
     if (state.view.openFocus) { gotoPage('focus'); return; }
     const taskId = state.freeFocus ? null : state.selectedTaskId;
-    await run(() => api.command({ type: 'startFocus', id: newId('focus'), taskId, plannedSeconds: state.focusPlanned }),
+    await run(() => api.command({ type: 'startFocus', id: newId('focus'), taskId, plannedSeconds: focusSecondsFor(state, taskId) }),
       { success: '专注开始' });
     gotoPage('focus');
   },
@@ -456,8 +457,7 @@ document.addEventListener('click', (event) => {
 
 $('#main').addEventListener('change', (event) => {
   if (event.target.id !== 'planned') return;
-  state.focusPlanned = Number(event.target.value);
-  state.focusRemaining = state.focusPlanned;
+  state.focusPlanned = Number(event.target.value) || null;
   draw();
 });
 

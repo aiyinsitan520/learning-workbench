@@ -100,9 +100,15 @@ function focusText(seconds) {
 }
 
 /** 给 review.js 的画布导出用的「事实」，口径与 /api/review 一致。 */
-function factsOf(digest) {
+function factsOf(digest, extra = {}) {
   return {
     day: digest.day,
+    created: (digest.created ?? []).length,
+    followRate: digest.plan.followRate,
+    planned: digest.plan.blocks.length,
+    noteTasks: (extra.notes ?? []).filter((n) => n.edited).length,
+    harvests: (extra.harvests ?? []).length,
+    projectLogs: (digest.projects ?? []).filter((p) => p.log).length,
     completed: digest.completed.map((t) => t.title),
     focus: digest.focus.byTask.map((t) => ({ title: t.title, seconds: t.seconds })),
     sessions: digest.focus.sessions,
@@ -166,7 +172,7 @@ function metricsMarkup() {
 
 function aiMarkup() {
   const { digest, review, today } = state.data;
-  const facts = factsOf(digest);
+  const facts = factsOf(digest, state.data);
   const summary = review ? review.text : localText(facts, { when: whenWord(digest.day, today) });
   const when = review ? reviewTime(review.createdAt) : '';
   const needModel = state.aiError.includes('还没有设置模型');
@@ -275,15 +281,39 @@ function detailsMarkup() {
     : '<p class="empty">没有已结束的专注。</p>';
   const blocks = digest.plan.blocks.length
     ? `<ul class="board-list">${digest.plan.blocks.map((b) => `<li><time>${esc(b.start)}</time>${esc(b.title)}
-        <b>${b.minutes} 分钟${b.taskDone ? ' · 已完成' : ''}${b.focusSeconds ? ` · 专注 ${Math.round(b.focusSeconds / 60)} 分钟` : ''}</b></li>`).join('')}</ul>`
+        <b>${b.end ? `至 ${esc(b.end)} · ` : ''}${b.minutes} 分钟${b.taskDone ? ' · 已完成' : ''}${b.focusSeconds ? ` · 专注 ${Math.round(b.focusSeconds / 60)} 分钟` : ''}</b></li>`).join('')}</ul>`
     : '<p class="empty">这一天没有排时间块。</p>';
+  const timeline = digest.focus.timeline?.length
+    ? `<ul class="board-list" data-board-timeline>${digest.focus.timeline.map((f) => `<li><time>${esc(f.start)}–${esc(f.end)}</time>${esc(f.title)}
+        <b>${f.minutes} 分钟</b></li>`).join('')}</ul>`
+    : '<p class="empty">没有已结束的专注。</p>';
+  const notes = state.data.notes ?? [];
+  const noteList = notes.length
+    ? `<ul class="board-list" data-board-notes>${notes.map((n) => `<li>${esc(n.title)}<b>${n.edited ? (n.firstTime ? '首次记录' : '新写了内容') : '查看过'}</b></li>`).join('')}</ul>`
+    : '<p class="empty">这一天没有写任务正文。</p>';
+  const harvests = state.data.harvests ?? [];
+  const harvestList = harvests.length
+    ? `<ul class="board-list" data-board-harvests>${harvests.map((h) => `<li>${esc(h.title)}${h.conclusion ? `：${esc(h.conclusion)}` : ''}</li>`).join('')}</ul>`
+    : '<p class="empty">这一天没有存收获。</p>';
+  const created = digest.created ?? [];
+  const createdList = created.length
+    ? `<ul class="board-list" data-board-created>${created.map((t) => `<li>${esc(t.title)}</li>`).join('')}</ul>`
+    : '<p class="empty">这一天没有新建任务。</p>';
   return `<details class="board-details">
     <summary>当天明细</summary>
     <div class="board-detailgrid">
       <div><h3>完成清单</h3>${completed}</div>
       <div><h3>按任务的专注</h3>${byTask}</div>
     </div>
-    <div><h3>计划时间表</h3>${blocks}</div>
+    <div class="board-detailgrid">
+      <div><h3>计划时间表</h3>${blocks}</div>
+      <div><h3>专注时间线</h3>${timeline}</div>
+    </div>
+    <div class="board-detailgrid">
+      <div><h3>当天记录</h3>${noteList}</div>
+      <div><h3>当天收获</h3>${harvestList}</div>
+    </div>
+    <div><h3>新建任务</h3>${createdList}</div>
   </details>`;
 }
 
@@ -365,7 +395,7 @@ function onInput(event) {
 /** 保存图片：沿用 review.js 的画布排版，换成每日维护的标题与统计。 */
 function exportImage() {
   const { digest, review } = state.data;
-  const facts = factsOf(digest);
+  const facts = factsOf(digest, state.data);
   const summary = review ? review.text : localText(facts, { when: whenWord(digest.day, state.data.today) });
   const output = document.createElement('canvas');
   paint(output, 760, facts, summary, Boolean(review), {

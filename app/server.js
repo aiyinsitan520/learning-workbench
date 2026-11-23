@@ -10,6 +10,7 @@ import { openDatabase, WorkbenchError, SCHEMA_PATH } from './lib/db.js';
 import { isValidDate, localDateOf, nowSeconds } from './lib/time.js';
 import { dayDigest, yesterdayOf, contextSnapshot, reviewMaterial, reviewHash } from './lib/digest.js';
 import { contextMarkdown } from './lib/context-md.js';
+import { planNow } from './public/js/plan-now.js';
 import { handleAiRoute } from './lib/ai-routes.js';
 import { createIslandController, defaultIslandLauncher } from './lib/island.js';
 import { createUpdater, UpdateError } from './lib/updater.js';
@@ -117,7 +118,10 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater) {
         const hash = reviewHash(material);
         const saved = wb.readDailyReview(day);
         const review = saved ? { ...saved, stale: saved.factsHash !== hash } : null;
-        sendJson(res, 200, { ok: true, digest, factsHash: hash, review, today: localDateOf(nowSeconds(), wb.timeZone) });
+        // 看板「当天明细」也展示当天写了正文的任务与收获（只给标题和摘要，不给整篇正文）
+        const notes = material.notes.map(({ taskId, title, edited, firstTime }) => ({ taskId, title, edited, firstTime }));
+        const harvests = material.harvests.map(({ id, title, conclusion, tags }) => ({ id, title, conclusion, tags }));
+        sendJson(res, 200, { ok: true, digest, factsHash: hash, review, notes, harvests, today: localDateOf(nowSeconds(), wb.timeZone) });
         return;
       }
       case 'GET /api/context': {
@@ -141,10 +145,18 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater) {
         const tz = url.searchParams.get('tz') || wb.timeZone;
         wb.settleExpired();
         const view = wb.readDay(day, tz);
-        const recommended = wb.recommend(day, url.searchParams.get('prefer') || null, tz);
+        // 当前计划（只在看今天时有）：桌面灵动岛据此显示任务、开始时长；没有指定 prefer 时推荐也跟它走
+        const now = wb.now();
+        const found = day === localDateOf(now, tz) ? planNow(view.scheduled, now) : null;
+        const clock = (t) => new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+          .format(new Date(t * 1000));
+        const plan = found ? { ...found, start: clock(found.startsAt), end: clock(found.endsAt) } : null;
+        const prefer = url.searchParams.get('prefer') || null;
+        const planTask = !prefer && plan ? view.scheduled.find((b) => b.id === plan.blockId)?.task : null;
+        const recommended = planTask ?? wb.recommend(day, prefer, tz);
         const focusLog = wb.readFocusLog(day, tz);
         const stats = wb.readStats(day, tz);
-        sendJson(res, 200, { ok: true, view, recommended, focusLog, stats });
+        sendJson(res, 200, { ok: true, view, recommended, plan, focusLog, stats });
         return;
       }
       case 'GET /api/month': {

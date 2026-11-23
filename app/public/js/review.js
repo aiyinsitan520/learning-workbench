@@ -11,6 +11,13 @@ export function localText(f, { when = '昨天' } = {}) {
   const parts = [];
   if (f.completed.length) parts.push('完成了' + f.completed.slice(0, 3).map(t => '「' + t + '」').join('、') + (f.completed.length > 3 ? '等 ' + f.completed.length + ' 项任务。' : '。'));
   if (f.focus.length) parts.push('专注时间最多的是「' + f.focus[0].title + '」，累计 ' + duration(f.focus[0].seconds) + '。');
+  if (f.focus.length > 1) parts.push('还专注了' + f.focus.slice(1, 4).map(t => '「' + t.title + '」' + duration(t.seconds)).join('、') + '。');
+  if (f.seconds) parts.push('全天专注 ' + duration(f.seconds) + '，共 ' + f.sessions + ' 轮。');
+  if (f.planned && f.followRate != null) parts.push('排了 ' + f.planned + ' 个时间块，计划执行率 ' + Math.round(f.followRate * 100) + '%。');
+  if (f.created) parts.push('新建了 ' + f.created + ' 项任务。');
+  if (f.noteTasks) parts.push('在 ' + f.noteTasks + ' 个任务里写了正文记录。');
+  if (f.harvests) parts.push('存了 ' + f.harvests + ' 条收获。');
+  if (f.projectLogs) parts.push('更新了 ' + f.projectLogs + ' 个长期项目的进展。');
   if (f.noteTitle || f.noteBlocks) parts.push('留下了一篇学习手记' + (f.noteTitle ? '《' + f.noteTitle + '》' : '') + '。');
   if (!parts.length && f.scheduled) parts.push(when + '安排了 ' + f.scheduled + ' 个时间块，暂未记录任务完成或专注用时。');
   return parts.join('') || when + '没有留下学习记录。之后完成的任务、专注和手记，会出现在对应日期的回顾里。';
