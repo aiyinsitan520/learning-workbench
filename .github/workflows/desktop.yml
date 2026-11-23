@@ -55,7 +55,13 @@ jobs:
         run: |
           set -eu
           sha256sum Learning-Workbench-Windows-x64.zip Learning-Workbench-macOS-{arm64,x64}.dmg > SHA256SUMS.txt
-          gh release create "$TAG" --verify-tag --draft --title "学习工作台 $TAG" --notes "Windows 请完整解压 ZIP 后打开 Learning Workbench.exe。Mac 请按芯片下载 DMG 并将应用拖入「应用程序」。三个包均经过对应系统的启动测试。Windows 未商业签名，Mac 使用临时签名，未经公证。校验值见 SHA256SUMS.txt。"
+          notes=release-notes.md
+          if [ -f "../desktop/release-notes/$TAG.md" ]; then
+            cat "../desktop/release-notes/$TAG.md" > "$notes"
+            printf '\n\n' >> "$notes"
+          fi
+          printf '%s\n' "Windows 请完整解压 ZIP 后打开 Learning Workbench.exe。Mac 请按芯片下载 DMG 并将应用拖入「应用程序」。三个包均经过对应系统的启动测试。Windows 未商业签名，Mac 使用临时签名，未经公证。校验值见 SHA256SUMS.txt。" >> "$notes"
+          gh release create "$TAG" --verify-tag --draft --title "学习工作台 $TAG" --notes-file "$notes"
           gh release upload "$TAG" Learning-Workbench-* SHA256SUMS.txt latest.json latest.json.sig
           gh release edit "$TAG" --draft=false --latest
           # 读回公开地址，确认客户端拿到的清单和签名与本地验过的逐字一致
