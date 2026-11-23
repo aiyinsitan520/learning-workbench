@@ -32,11 +32,20 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - uses: actions/download-artifact@v4
         with:
           pattern: desktop-*
           path: packages
           merge-multiple: true
+      # 自动更新清单：标签须等于 app/version.json；私钥须与源码公钥成对，否则失败、不发布
+      - name: Sign update manifest
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: node desktop/release-manifest.mjs packages "${{ github.ref_name }}"
       - name: Publish verified desktop packages
         working-directory: packages
         env:
@@ -47,5 +56,10 @@ jobs:
           set -eu
           sha256sum Learning-Workbench-Windows-x64.zip Learning-Workbench-macOS-{arm64,x64}.dmg > SHA256SUMS.txt
           gh release create "$TAG" --verify-tag --draft --title "学习工作台 $TAG" --notes "Windows 请完整解压 ZIP 后打开 Learning Workbench.exe。Mac 请按芯片下载 DMG 并将应用拖入「应用程序」。三个包均经过对应系统的启动测试。Windows 未商业签名，Mac 使用临时签名，未经公证。校验值见 SHA256SUMS.txt。"
-          gh release upload "$TAG" Learning-Workbench-* SHA256SUMS.txt
+          gh release upload "$TAG" Learning-Workbench-* SHA256SUMS.txt latest.json latest.json.sig
           gh release edit "$TAG" --draft=false --latest
+          # 读回公开地址，确认客户端拿到的清单和签名与本地验过的逐字一致
+          for f in latest.json latest.json.sig; do
+            curl -fsSL "https://github.com/$GH_REPO/releases/latest/download/$f" -o "published-$f"
+            cmp "$f" "published-$f"
+          done

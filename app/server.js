@@ -4,7 +4,7 @@
 import { createServer } from 'node:http';
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase, WorkbenchError, SCHEMA_PATH } from './lib/db.js';
 import { isValidDate, localDateOf, nowSeconds } from './lib/time.js';
@@ -12,9 +12,13 @@ import { dayDigest, yesterdayOf, contextSnapshot, reviewMaterial, reviewHash } f
 import { contextMarkdown } from './lib/context-md.js';
 import { handleAiRoute } from './lib/ai-routes.js';
 import { createIslandController, defaultIslandLauncher } from './lib/island.js';
+import { createUpdater, UpdateError } from './lib/updater.js';
+import { UPDATE_CONFIG } from './lib/update-config.js';
+import { readFileSync } from 'node:fs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(HERE, 'public');
+export const APP_VERSION = JSON.parse(readFileSync(join(HERE, 'version.json'), 'utf8')).version;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -35,9 +39,13 @@ const BACKUP_TABLES = ['projects', 'tasks', 'schedule_blocks', 'focus_sessions',
   'task_notes', 'task_note_days', 'project_logs', 'daily_reviews'];
 
 export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root = HERE, aiConfigPath, fetchImpl,
-  islandLauncher = defaultIslandLauncher(root) } = {}) {
+  islandLauncher = defaultIslandLauncher(root), updater } = {}) {
   // 桌面灵动岛（app/island/island.ps1）：测试传 islandLauncher: null 或假启动器，不会真的弹窗
   const island = createIslandController(islandLauncher);
+  // 自动更新（app/lib/updater.js）：桌面版由 desktop/main.mjs 注入能安装的 updater；
+  // 源码运行只能手动检查，不下载、不安装（更新请 git pull），也不定时联网。
+  updater ??= createUpdater({ version: APP_VERSION, config: UPDATE_CONFIG, edition: 'source',
+    install: { mode: null, reason: '源码运行的工作台请用 git pull 更新；自动下载和安装只在桌面版里可用。' } });
   const workbench = openDatabase(dbPath, { timeZone });
   // AI 模型配置文件默认放在数据库旁边；测试可传 fetchImpl 换掉真实网络请求。
   const ai = { configPath: aiConfigPath ?? (dbPath && dbPath !== ':memory:' ? join(dirname(dbPath), 'ai-providers.json') : null), fetch: fetchImpl ?? fetch };
@@ -48,7 +56,7 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     try {
       if (url.pathname.startsWith('/api/')) {
-        await handleApi(workbench, req, res, url, publicDir, ai, island);
+        await handleApi(workbench, req, res, url, publicDir, ai, island, updater);
         return;
       }
       await serveStatic(req, res, url.pathname, publicDir, projectDir);
@@ -58,6 +66,7 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
   });
 
   server.on('close', () => {
+    updater.stopSchedule();
     try {
       workbench.close();
     } catch {
@@ -65,7 +74,7 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
     }
   });
 
-  return { server, workbench };
+  return { server, workbench, updater };
 }
 
 // ------------------------------------------------------------------ API
@@ -87,7 +96,7 @@ async function publicBuild(dir) {
   return buildCache.value;
 }
 
-async function handleApi(wb, req, res, url, publicDir, ai, island) {
+async function handleApi(wb, req, res, url, publicDir, ai, island, updater) {
   const route = `${req.method} ${url.pathname}`;
   try {
     const body = req.method === 'POST' ? await readJson(req) : null;
@@ -225,6 +234,28 @@ async function handleApi(wb, req, res, url, publicDir, ai, island) {
         // 打开 / 关闭桌面灵动岛：{ action: 'open' | 'close' | 'toggle' } → { supported, running }
         sendJson(res, 200, { ok: true, ...(await island.handle(body?.action, req.socket.localPort)) });
         return;
+      case 'GET /api/update':
+        // 自动更新状态：当前版本、检查结果、下载进度、本机能否安装
+        sendJson(res, 200, { ok: true, update: updater.status() });
+        return;
+      case 'POST /api/update': {
+        // { action: 'check' | 'download' | 'install' | 'settings', autoCheck? } → { update, result? }
+        const action = body?.action;
+        let result = null;
+        try {
+          if (action === 'check') await updater.check();
+          else if (action === 'download') updater.download();
+          else if (action === 'install') result = await updater.install();
+          else if (action === 'settings') await updater.setAutoCheck(body.autoCheck);
+          else throw new WorkbenchError('invalid', `未知更新操作：${action}`);
+        } catch (err) {
+          if (err instanceof UpdateError) throw new WorkbenchError('conflict', err.message);
+          throw err;
+        }
+        sendJson(res, 200, { ok: true, update: updater.status(), result });
+        if (result?.afterResponse) setTimeout(result.afterResponse, 300);
+        return;
+      }
       case 'GET /api/health':
         // build：前端文件的最新修改时间。长期开着的窗口据此发现代码已更新并自动重载。
         sendJson(res, 200, { ok: true, timeZone: wb.timeZone, now: nowSeconds(), build: await publicBuild(publicDir) });
@@ -380,8 +411,9 @@ async function serveStatic(req, res, pathname, publicDir, projectDir) {
 
 // ------------------------------------------------------------------ 入口
 
-export async function start({ port = 0, host = '127.0.0.1', dbPath, timeZone, root, aiConfigPath, fetchImpl, islandLauncher } = {}) {
-  const { server, workbench } = createWorkbenchServer({ dbPath, timeZone, root, aiConfigPath, fetchImpl,
+export async function start({ port = 0, host = '127.0.0.1', dbPath, timeZone, root, aiConfigPath, fetchImpl, islandLauncher,
+  updater } = {}) {
+  const { server, workbench, updater: up } = createWorkbenchServer({ dbPath, timeZone, root, aiConfigPath, fetchImpl, updater,
     ...(islandLauncher === undefined ? {} : { islandLauncher }) });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -389,10 +421,15 @@ export async function start({ port = 0, host = '127.0.0.1', dbPath, timeZone, ro
   });
   const address = server.address();
   const url = `http://${host}:${address.port}/`;
-  return { server, workbench, url, port: address.port };
+  return { server, workbench, updater: up, url, port: address.port };
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1].replace(/\\/g, '/')}`).href) {
+// 直接 `node app/server.js` 运行时才启动。桌面版（Electron）里 argv[1] 可能是 --user-data-dir=… 之类的参数，
+// 不能拿来拼 URL（以前这里会抛 Invalid URL，带参数启动桌面版就崩溃）。
+const isEntry = (() => {
+  try { return Boolean(process.argv[1]) && resolve(process.argv[1]) === fileURLToPath(import.meta.url); } catch { return false; }
+})();
+if (isEntry) {
   const port = Number(process.env.PORT ?? 7321);
   const dbPath = process.env.WORKBENCH_DB ?? join(HERE, 'data', 'workbench.db');
   // 工作台固定按北京时间分日（用户 2026-11-21 决定），不跟随本机时区；需要时用 WORKBENCH_TZ 覆盖。

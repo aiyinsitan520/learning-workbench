@@ -215,3 +215,10 @@ Claude 追加：旧 yesterday.test.mjs 仍等 .review-page 画布，v2 看板上
 坑：Node spawn 的 PATH 里没有 PowerShell（用完整路径）；detached:true 让 PowerShell 无控制台约 80ms 退出（不用 detached）；被强杀后互斥量「被遗弃」需捕获。
 验收：verify\run_all.cmd full PASS；真实服务上经 /api/island 打开，截图确认顶部居中、显示真实任务。
 完成｜Codex｜桌面打包、实机图库、GitHub 下载与使用指南｜2026-11-22。Windows x64 与 macOS arm64/x64 首轮原生构建通过（Actions 45003911239），full 68+58 通过。发布版由 v1.0.0 标签触发。
+
+完成｜Claude｜app/lib/updater.js、update-config.js、version.json、js/update.js（新）、server.js（/api/update、入口判断）、index.html、app.css、js/app.js、workbench.d.ts、desktop/main.mjs、update-install.mjs、update-helper.ps1、release-manifest.mjs、update-keys.mjs（新）、build.py、.github/workflows/desktop.yml、README.md、app/README.md、测试 update.test.js、ui-update.test.mjs（新）｜2026-11-23 桌面版自动更新（参考贾维喵管家）
+做法：Release 附 latest.json + Ed25519 签名（零依赖，node:crypto）；客户端验签 → 核对仓库/标签/版本/下载地址 → 限 400 MiB、边下边算 SHA-256 → 安装前再算一次 → 用户确认 → 备份资料库、解压到旁边、助手脚本等程序退出后换文件夹并重启（旧版留 .previous）。Mac 校验后打开 DMG 由用户拖入。只检查不自动下载；源码运行只能检查（git pull）。
+坑：Electron 退出会连带结束它启动的子进程，助手必须经 WMI Win32_Process.Create 启动；detached 会让隐藏 PowerShell 立刻退出。server.js 原入口判断拿 argv[1] 拼 URL，桌面版带参数启动即崩溃（v1.0.0 起就有），已修。
+验收：verify\run_all.cmd full PASS（契约 17/17、服务 83/83、UI 61/61，新增 14 项）；本机真实演练：缓存 Electron 44.9.3 拼 1.1.0 与 1.1.1，本机模拟 Release，1.1.0 检查→下载→校验→安装→2 秒后以 1.1.1 重开，任务与正文保留、备份在、旧版在 .previous、下载包已清理，未碰真实 %APPDATA%。
+待用户：① 生成签名密钥并设 GitHub secret UPDATE_SIGNING_KEY（node desktop/update-keys.mjs init，未做）；② 提交推送后打 v1.1.0 标签发布。没有公钥的版本只能提示到发布页手动下载；没有 secret 时发布任务会失败、不会发出无签名清单。
+未验证：Mac 打开 DMG 路径（无真机）；GitHub 真实 Release 上的清单读回（首次发 v1.1.0 时由 workflow 的 cmp 步骤验证）。

@@ -57,6 +57,9 @@ app/
   seed.js            示例数据
   lib/db.js          仓储层：把 architecture/schema.sql 落成可用的命令与视图
   lib/time.js        本地日期 ↔ UTC 秒（含夏令时）
+  lib/updater.js     自动更新：验签 → 核对清单 → 下载并校验 SHA-256 → 交给桌面版安装（/api/update）
+  lib/update-config.js  更新源（本仓库 GitHub Release）与 Ed25519 公钥
+  version.json       版本号唯一来源；桌面包与发版标签都从这里取
   public/            前端：三栏外壳 + 五个页面 + 模型接入页，原生 ES 模块，无构建步骤
     index.html       顶栏（品牌、分组工具条、皮肤与圆体开关、灵动岛）与三栏外壳
     tokens.css       设计令牌：默认皮肤「薄荷」的基础色 + 用 color-mix 推出的派生色、字体、圆角、阴影、动效
@@ -73,6 +76,7 @@ app/
     js/views.js      各页 HTML 的纯函数
     js/planner.js    日计划拖拽与排期
     js/task-notes.js 任务正文的读取、自动保存、冲突与重试
+    js/update.js     左下角版本号 + 「软件更新」对话框
   test/              数据层、服务层、端到端 UI 测试
 ```
 

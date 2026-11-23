@@ -14,6 +14,7 @@ import { showBoard } from './board.js';
 import { showAiSettings } from './ai-settings.js';
 import { bindProjects } from './projects.js';
 import { bindPipTimer } from './pip.js';
+import { bindUpdates } from './update.js';
 import {
   PAGES, LEGACY_PAGES, activityPage, calendarPage, focusPage, mmss, renderDone,
   renderPending, renderProgress, renderRail, taskTitle, todoTasks, weekdayOf, PLAN_COURSE,
@@ -575,8 +576,16 @@ const moduleCtx = {
   reload, gotoPage,
   run: (fn, success) => run(fn, { success }),
   openTask: (taskId) => openTaskEditor(taskId),
+  prefs,
+  /** 立即保存所有正文草稿；返回 true 表示没有未保存的内容（安装更新前用）。 */
+  flushNotes: async () => {
+    try { await taskNotes.saveNow(); } catch { /* 下面按是否还有未保存内容判断 */ }
+    return !taskNotes.hasUnsavedWork();
+  },
 };
 const projects = bindProjects($('#projects'), moduleCtx);
+// 软件更新：左下角版本号 + 更新对话框（js/update.js，状态来自 /api/update）
+bindUpdates($('#updateBtn'), moduleCtx);
 // 番茄钟悬浮小窗（Document Picture-in-Picture，退路为视频画中画），随 tick 与重绘刷新
 const pipTimer = bindPipTimer({ state, commands, taskName, remainingSeconds, notify });
 

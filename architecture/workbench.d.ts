@@ -219,4 +219,47 @@ export interface ModuleContext {
   gotoPage(page: Page): void;
   run(fn: () => Promise<unknown>, success?: string): Promise<boolean | undefined>; // 带忙碌锁、错误提示、成功后 reload
   openTask(taskId: string): void; // 打开某任务的正文（首页）
+  prefs: { get(key: string): string | null; set(key: string, value: string): void }; // localStorage 安全封装
+  flushNotes(): Promise<boolean>; // 立即保存正文草稿；true = 没有未保存内容（v3：安装更新前调用）
 }
+
+// ------------------------------------------------------------- v3: 自动更新（app/lib/updater.js，参考贾维喵管家）
+/**
+ * 发布源与公钥：app/lib/update-config.js；版本号唯一来源：app/version.json（发版标签必须是 v<version>）。
+ * Release 资产 latest.json（下面的 UpdateManifest 原文）+ latest.json.sig（对原文字节的 Ed25519 签名，base64），
+ * 由 desktop/release-manifest.mjs 在 CI 里用 secret UPDATE_SIGNING_KEY 生成。
+ * 客户端：先验签 → 核对 format/repo/tag/版本 → 本平台包的 url 必须是 https://github.com/<repo>/releases/download/v<版本>/<name>
+ * → 下载限 400 MiB、边下边算 SHA-256 → 安装前再算一次 → 用户确认 → 桌面版安装（备份资料库、解压、替换、重启）。
+ */
+export interface UpdateManifest {
+  format: "learning-workbench-update";
+  repo: string;                  // 'aiyinsitan520/learning-workbench'
+  version: string;               // x.y.z，不带预发布后缀
+  tag: string;                   // 'v' + version
+  publishedAt: string;           // ISO 时间
+  notes: string;                 // 更新说明（desktop/release-notes/<tag>.md）
+  packages: Partial<Record<"win32-x64" | "darwin-arm64" | "darwin-x64", { name: string; url: string; size: number; sha256: string }>>;
+}
+export interface UpdateStatus {
+  current: string;
+  edition: "desktop" | "source";  // 源码运行只能检查，更新用 git pull
+  platform: string;
+  status: "idle" | "checking" | "latest" | "available" | "downloading" | "ready" | "installing" | "error";
+  latest: { version: string; notes: string; publishedAt: string | null; package: { name: string; size: number } | null } | null;
+  progress: { received: number; total: number } | null;
+  error: { code: string; message: string } | null;
+  checkedAt: number | null;
+  autoCheck: boolean;            // 启动 1 分钟后 + 每 6 小时检查；只检查不下载
+  signed: boolean;               // 本版本是否带更新公钥
+  install: { mode: "restart" | "open" | null; reason: string }; // restart=Windows 替换重启；open=Mac 打开 DMG；null=不能安装
+  releasesUrl: string;
+  justUpdated: { ok: boolean; from: string; to: string; backup?: string; log?: string } | null;
+}
+/**
+ *   GET  /api/update                                   → { update: UpdateStatus }
+ *   POST /api/update { action: 'check' }               → { update }（网络错误写进 update.error，不报 HTTP 错）
+ *   POST /api/update { action: 'download' }            → { update }（后台下载，轮询 GET 看进度）
+ *   POST /api/update { action: 'install' }             → { update, result: { restarting?: true; opened?: true; message } }
+ *   POST /api/update { action: 'settings', autoCheck } → { update }
+ *   不能执行的操作（没有新版、不能安装、未下载完）→ 409。
+ */

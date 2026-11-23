@@ -8,31 +8,39 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.0.0"
+# Single source of truth for the app version; the release tag must be v<VERSION>.
+VERSION = json.loads((ROOT / "app/version.json").read_text(encoding="utf-8"))["version"]
 ELECTRON = "44.9.3"
+DESKTOP_FILES = ("main.mjs", "update-install.mjs", "update-helper.ps1")
 
 
 def run(*args, **kwargs):
     subprocess.run(args, check=True, **kwargs)
 
 
-def build(work):
-    stage = work / "app"
+def stage_app(stage):
+    """Copy the runtime sources Electron loads (resources/app) into an empty folder."""
     stage.mkdir()
     # Select only tracked runtime sources. Never recurse through a user's app/data.
     paths = subprocess.check_output([
         "git", "ls-files", "-z", "--", "app/public", "app/lib", "app/island",
-        "app/server.js", "architecture/*.sql", "desk.png", "kitten.png",
+        "app/server.js", "app/version.json", "architecture/*.sql", "desk.png", "kitten.png",
     ], cwd=ROOT).decode().split("\0")
     for name in filter(None, paths):
         target = stage / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / name, target)
-    shutil.copyfile(ROOT / "desktop/main.mjs", stage / "main.mjs")
+    for name in DESKTOP_FILES:
+        shutil.copyfile(ROOT / "desktop" / name, stage / name)
     (stage / "package.json").write_text(json.dumps({
         "name": "learning-workbench", "productName": "Learning Workbench",
         "version": VERSION, "type": "module", "main": "main.mjs",
     }))
+
+
+def build(work):
+    stage = work / "app"
+    stage_app(stage)
     windows = sys.platform == "win32"
     arch = "x64" if windows or os.uname().machine == "x86_64" else "arm64"
     platform = "win32" if windows else "darwin"
