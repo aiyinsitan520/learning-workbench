@@ -38,7 +38,7 @@ function appendDay(lines, digest) {
 
 /** @param {ReturnType<typeof import('./digest.js').contextSnapshot>} snapshot */
 export function contextMarkdown(snapshot) {
-  const { range, timeZone, guide, pendingTasks, projects, days, taskNotes } = snapshot;
+  const { range, timeZone, guide, pendingTasks, projects, days, taskNotes, harvests } = snapshot;
   const lines = ['# 学习工作台数据快照', '', `${range.from} 至 ${range.to} · ${timeZone}`, '',
     '> 日期和 HH:MM 使用工作台时区。本文所有时长均取整为分钟。', ...Object.entries(guide)
       .filter(([field]) => field !== 'time').map(([, description]) => '> ' + description), '', '## 待办', ''];
@@ -75,6 +75,19 @@ export function contextMarkdown(snapshot) {
     appendDay(lines, day);
   }
   flush();
+
+  if (harvests?.length) {
+    lines.push('## 收获', '');
+    for (const card of harvests) {
+      lines.push(`### ${card.day} · ${inline(card.title)}`, '',
+        `- 结论：${inline(card.conclusion) || '无'}`,
+        `- 要点：${card.points.length ? '' : '无'}`);
+      for (const point of card.points) lines.push(`  - ${inline(point)}`);
+      lines.push(`- 待办：${card.todos.length ? '' : '无'}`);
+      for (const todo of card.todos) lines.push(`  - ${inline(todo)}`);
+      lines.push(`- 标签：${card.tags.map((tag) => '#' + inline(tag)).join(' ') || '无'}`, '');
+    }
+  }
 
   if (taskNotes) {
     lines.push('## 任务正文', '');

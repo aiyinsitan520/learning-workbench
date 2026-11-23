@@ -88,11 +88,17 @@ export function dayDigest(wb, day, timeZone = wb.timeZone) {
   };
 }
 
+function harvestsOnDay(wb, day) {
+  return wb.readHarvestsOnDay(day).map(({ id, day, title, conclusion, points, tags, sourceUrl, projectId, todos }) =>
+    ({ id, day, title, conclusion, points, tags, sourceUrl, projectId, todos: todos.map(({ text }) => text) }));
+}
+
 /**
- * AI 每日回顾的全部素材（只给 /api/ai/review 用，不进 AI 数据快照导出）：
+ * AI 每日回顾的全部素材：
  * - digest：当天的完成、专注、计划、长期项目（同 dayDigest）
  * - notes：当天任务正文的新增内容（added）和当天接触过的任务的正文摘录（body），见 db.readNoteChanges
  * - recent：之前 6 天的投入概况与当时的回顾摘要，用来谈「成长」
+ * - harvests：归入当天的对话精华卡片
  */
 export function reviewMaterial(wb, day, timeZone = wb.timeZone) {
   const digest = dayDigest(wb, day, timeZone);
@@ -112,12 +118,16 @@ export function reviewMaterial(wb, day, timeZone = wb.timeZone) {
       reviewExcerpt: review ? review.text.replace(/\s+/g, ' ').slice(0, 160) : '',
     });
   }
-  return { digest, notes, recent };
+  return { digest, notes, recent, harvests: harvestsOnDay(wb, day) };
 }
 
-/** 回顾的指纹：当天统计或当天正文变了就变（之前几天的变化不触发重写）。 */
+/** 回顾的指纹只依赖当天的统计、正文和收获。无收获时沿用旧指纹。 */
 export function reviewHash(material) {
-  return factsHash({ digest: material.digest, notes: material.notes.map((n) => [n.taskId, n.added ?? n.body]) });
+  const facts = { digest: material.digest, notes: material.notes.map((n) => [n.taskId, n.added ?? n.body]) };
+  if (material.harvests?.length) {
+    facts.harvests = material.harvests.map(({ id, title, conclusion, points, todos }) => [id, title, conclusion, points, todos]);
+  }
+  return factsHash(facts);
 }
 
 /** 「昨天」：工作台时区下今天的前一天。 */
@@ -150,10 +160,12 @@ export function contextSnapshot(wb, { endDay, days = 14, includeNotes = false } 
       planOnly: 'planOnly=true 的块是直接加在日计划里的事项，不在待办清单中。',
       projects: '长期项目跨多天，dayIndex 是第几天，daysLeft 是距截止还剩几天（可为负表示逾期）。',
       followRate: 'plan.followRate = 当天计划里的任务被专注过或完成的比例。',
+      harvests: '收获是用户从与 AI 的对话里存下的精华，原文不存；todos 是当时列出的待办文字。',
     },
     pendingTasks: view.pending.map((t) => ({ id: t.id, title: t.title, course: t.course, projectId: t.projectId })),
     projects: wb.listProjects(),
     days: digests,
+    harvests: digests.flatMap(({ day }) => harvestsOnDay(wb, day)),
   };
   if (includeNotes) {
     snapshot.taskNotes = wb.db.prepare(
