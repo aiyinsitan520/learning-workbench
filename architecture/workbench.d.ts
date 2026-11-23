@@ -161,6 +161,7 @@ export interface AiContext {
   projects: (Project & { logs: ProjectLog[] })[];
   days: DayDigest[];              // 从旧到新
   taskNotes?: { taskId: string; title: string; body: string }[]; // 仅 notes=1
+  harvests: (Pick<Harvest, "id" | "day" | "title" | "conclusion" | "points" | "tags" | "sourceUrl" | "projectId"> & { todos: string[] })[]; // v4：range 内（按 Harvest.day）存的收获，旧的在前
 }
 
 // ------------------------------------------------------------- v2: 模型接入（app/lib/ai-routes.js，CC Switch 式）
@@ -306,6 +307,8 @@ export interface Harvest {
  *   promoteHarvestTodo：同一事务里新建任务（标题 = 待办文字，归属卡片的项目）并记下 taskId；
  *        「排进今天」= promote(course:'日计划') 之后 saveSchedule。
  *   备份：/api/export 与 /api/import 的表清单含 harvests。
+ *   回顾（工单 T-H3，app/lib/digest.js）：reviewMaterial(day) 多一个 harvests（当天的收获，形状同 AiContext.harvests），
+ *        AI 回顾的【记录要点】【收获】要用到；reviewHash 只在当天有收获时才把它算进指纹（没有收获的日子指纹不变，旧回顾不会全部变成过期）。
  * 前端模块：app/public/js/harvest.js 导出 showHarvest(root, ctx: ModuleContext)（「收获」页，快捷键 6）
  *   与 openHarvestCapture(ctx, text?)（粘贴框；全局 Ctrl/⌘+Shift+V 在非输入框时调用）。样式在 harvest.css，只用令牌。
  */
