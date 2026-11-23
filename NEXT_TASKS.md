@@ -222,3 +222,4 @@ Claude 追加：旧 yesterday.test.mjs 仍等 .review-page 画布，v2 看板上
 验收：verify\run_all.cmd full PASS（契约 17/17、服务 83/83、UI 61/61，新增 14 项）；本机真实演练：缓存 Electron 44.9.3 拼 1.1.0 与 1.1.1，本机模拟 Release，1.1.0 检查→下载→校验→安装→2 秒后以 1.1.1 重开，任务与正文保留、备份在、旧版在 .previous、下载包已清理，未碰真实 %APPDATA%。
 待用户：① 生成签名密钥并设 GitHub secret UPDATE_SIGNING_KEY（node desktop/update-keys.mjs init，未做）；② 提交推送后打 v1.1.0 标签发布。没有公钥的版本只能提示到发布页手动下载；没有 secret 时发布任务会失败、不会发出无签名清单。
 未验证：Mac 打开 DMG 路径（无真机）；GitHub 真实 Release 上的清单读回（首次发 v1.1.0 时由 workflow 的 cmp 步骤验证）。
+完成｜Claude｜app/lib/update-config.js｜2026-11-23 用户同意后生成更新签名密钥：公钥写入源码，私钥在本机 %APPDATA%\learning-workbench-release\update-signing-key.pem（未入库），GitHub secret UPDATE_SIGNING_KEY 已设置。真实私钥签名自检通过，快速验收 PASS。剩余：推送后打 v1.1.0 标签发布；私钥需用户另外备份。

@@ -7,5 +7,7 @@ export const UPDATE_CONFIG = Object.freeze({
   repo: 'aiyinsitan520/learning-workbench',
   manifestUrl: 'https://github.com/aiyinsitan520/learning-workbench/releases/latest/download/latest.json',
   releasesUrl: 'https://github.com/aiyinsitan520/learning-workbench/releases',
-  publicKey: null,
+  publicKey: `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAp3aS6AKTqRnwxTHfLFULSD0Po74eM8w3+1NEZvR6MCg=
+-----END PUBLIC KEY-----`,
 });
