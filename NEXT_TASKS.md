@@ -272,3 +272,8 @@ tier：easy  risk：low  执行：Codex low  依赖：T-H1
 待用户：在 ChatGPT 自定义指令里放口令（见 docs/收获速记.md 或收获页「复制 ChatGPT 口令」），真实用一周后决定是否做 T-H4 书签按钮；用户提到「还有几个问题」，目前只给了第 1 个。
 下一位：从本段继续。若改收获页，从 app/public/js/harvest.js 与 app/test/ui-harvest.test.mjs 继续；改格式或解析，只改 app/public/js/harvest-format.js（页面与服务端共用）并跑 harvest.test.js。
 （两单并行，执行者不提交，Claude 验收后统一提交；契约补充见 bbc2bb0）
+
+工单：桌面版菜单可在本机库和现有服务器库间切换。
+可改文件：desktop/main.mjs、NEXT_TASKS.md、docs/agent-handoff/SESSION_LOG.md
+完成标准：保留两套数据并清楚标记活动数据源，离线可访问本机，原生桌面切换与 verify\run_all.cmd full 通过。
+完成｜Codex｜桌面数据源切换及 Mac 安装。Windows/macOS 桌面 smoke PASS，full PASS（97 项服务、71 项浏览器）；Mac 共享库 81 条记录可读。

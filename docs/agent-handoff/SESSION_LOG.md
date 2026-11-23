@@ -13,3 +13,5 @@
 2026-11-23｜Claude｜推送 main 至 1d27510，发布 v1.1.0（Actions 45141447534：三平台打包与 release 全部 success）。公开 latest.json 验签通过，三平台包大小与 SHA-256 和 GitHub digest 一致；7321 源码版实际检查结果为 latest。NEXT_TASKS.md 正由 T-H1 会话修改，本条未写入，待其提交后补记。
 
 2026-11-23｜Claude（/team）｜收获速记三单完成：T-H1 数据层与提炼接口（Claude，4d02751、bbc2bb0）、T-H2 收获页（Codex，7f85c05）、T-H3 回顾与快照（Codex，9a5fb77）。full PASS（17×2、11、17、97/97、UI 71/71）。7321 已重启，真实库迁到 v4 并自动备份。DSH 未登记本工作区，改派 Codex。遗留：T-H4 书签按钮待用户用一周后决定；用户其余问题未给出。下一位从 NEXT_TASKS.md「问题 1：对话收获速记」段继续。
+
+2026-11-23｜Codex｜桌面「数据源」菜单支持本机库和 SSH 隧道到 VPS 的共享库，记住选择并可离线打开本机库。Mac 已更新原应用并备份本地库，实测本机库 0 条、共享库 81 条。Windows/macOS 桌面 smoke 与 full（97/71）通过。
