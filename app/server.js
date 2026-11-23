@@ -36,7 +36,7 @@ const MIME = {
 const BODY_LIMIT = 512 * 1024;
 // 顺序即导入顺序：被引用的表在前。AI 密钥不在库里（app/data/ai-providers.json），不会被导出。
 const BACKUP_TABLES = ['projects', 'tasks', 'schedule_blocks', 'focus_sessions', 'day_notes', 'note_blocks',
-  'task_notes', 'task_note_days', 'project_logs', 'daily_reviews'];
+  'task_notes', 'task_note_days', 'project_logs', 'daily_reviews', 'harvests'];
 
 export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root = HERE, aiConfigPath, fetchImpl,
   islandLauncher = defaultIslandLauncher(root), updater } = {}) {
@@ -151,6 +151,14 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater) {
         const month = url.searchParams.get('month') || localDateOf(nowSeconds(), wb.timeZone).slice(0, 7);
         const tz = url.searchParams.get('tz') || wb.timeZone;
         sendJson(res, 200, { ok: true, days: wb.readMonth(month, tz) });
+        return;
+      }
+      case 'GET /api/harvests': {
+        // 收获库：?q=关键词&tag=标签&limit=50&offset=0 → { harvests, total, tags }
+        const p = url.searchParams;
+        sendJson(res, 200, { ok: true, ...wb.readHarvests({
+          q: p.get('q') ?? '', tag: p.get('tag') ?? '', limit: p.get('limit') ?? 50, offset: p.get('offset') ?? 0,
+        }) });
         return;
       }
       case 'GET /api/task-note': {
@@ -329,6 +337,25 @@ export function execute(wb, command) {
     case 'saveProjectLog':
       return wb.saveProjectLog({
         projectId: command.projectId, day: command.day, note: command.note, progress: command.progress ?? null,
+      });
+    // v4：收获库
+    case 'createHarvest':
+      return wb.createHarvest({
+        id: command.id, day: command.day, title: command.title, conclusion: command.conclusion,
+        points: command.points ?? [], todos: command.todos ?? [], tags: command.tags ?? [],
+        source: command.source ?? '', sourceUrl: command.sourceUrl ?? '', projectId: command.projectId ?? null,
+      });
+    case 'updateHarvest':
+      return wb.updateHarvest({
+        harvestId: command.harvestId, day: command.day, title: command.title, conclusion: command.conclusion,
+        points: command.points, todos: command.todos, tags: command.tags, sourceUrl: command.sourceUrl,
+        projectId: command.projectId,
+      });
+    case 'deleteHarvest':
+      return wb.deleteHarvest({ harvestId: command.harvestId });
+    case 'promoteHarvestTodo':
+      return wb.promoteHarvestTodo({
+        harvestId: command.harvestId, index: command.index, taskId: command.taskId, course: command.course ?? '',
       });
     default:
       throw new WorkbenchError('invalid', `未知命令：${type}`);

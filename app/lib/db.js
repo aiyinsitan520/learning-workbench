@@ -6,6 +6,7 @@ import { readFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dayRange, isValidDate, localDateOf, nowSeconds } from './time.js';
+import { HARVEST_LIMITS, splitTags } from '../public/js/harvest-format.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const SCHEMA_PATH = join(HERE, '..', '..', 'architecture', 'schema.sql');
@@ -13,7 +14,7 @@ export const SCHEMA_PATH = join(HERE, '..', '..', 'architecture', 'schema.sql');
 export const MIGRATIONS_DIR = join(HERE, '..', '..', 'architecture', 'migrations');
 
 // v1 = schema.sql；之后每一版是 migrations/00N_*.sql，文件自己写 PRAGMA user_version = N。
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 export const PROJECT_COURSE = '长期项目';
 const MAX_TEXT = 4000;
 const MAX_TASK_NOTE = 32000;
@@ -377,6 +378,178 @@ class Workbench {
       ...mapProject(p),
       logs: this.#all('SELECT * FROM project_logs WHERE project_id = ? ORDER BY day', p.id).map(mapProjectLog),
     }));
+  }
+
+  // ---------------------------------------------------------------- v4：收获库（对话精华）
+
+  /**
+   * 收获列表，新的在前。q 在标题、结论、要点、待办、标签里找；tag 精确匹配一个标签。
+   * 同时返回全部标签的计数，供筛选条使用。
+   */
+  readHarvests({ q = '', tag = '', limit = 50, offset = 0 } = {}) {
+    const n = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    const skip = Math.max(Number.parseInt(offset, 10) || 0, 0);
+    const where = [];
+    const args = [];
+    const query = String(q ?? '').trim();
+    if (query) {
+      const like = '%' + query.replace(/[\\%_]/g, (c) => '\\' + c) + '%';
+      where.push('(' + ['title', 'conclusion', 'points', 'todos', 'tags'].map((c) => `${c} LIKE ? ESCAPE '\\'`).join(' OR ') + ')');
+      args.push(like, like, like, like, like);
+    }
+    const wanted = String(tag ?? '').trim().replace(/^[#＃]+/, '');
+    if (wanted) {
+      where.push('EXISTS (SELECT 1 FROM json_each(harvests.tags) WHERE value = ?)');
+      args.push(wanted);
+    }
+    const filter = where.length ? ' WHERE ' + where.join(' AND ') : '';
+    const total = Number(this.#one(`SELECT COUNT(*) AS n FROM harvests${filter}`, ...args).n);
+    const rows = this.#all(`SELECT * FROM harvests${filter} ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`,
+      ...args, n, skip);
+    const tags = this.#all(
+      'SELECT j.value AS tag, COUNT(*) AS count FROM harvests, json_each(harvests.tags) AS j'
+        + ' GROUP BY j.value ORDER BY count DESC, j.value',
+    ).map((r) => ({ tag: r.tag, count: Number(r.count) }));
+    return { harvests: rows.map((r) => this.#mapHarvest(r)), total, tags };
+  }
+
+  /** 某天（按卡片的 day）存的收获，旧的在前。AI 回顾与数据快照用。 */
+  readHarvestsOnDay(day) {
+    if (!isValidDate(day)) throw invalid('日期格式应为 YYYY-MM-DD');
+    return this.#all('SELECT * FROM harvests WHERE day = ? ORDER BY created_at, rowid', day).map((r) => this.#mapHarvest(r));
+  }
+
+  readHarvest(id) {
+    requireId(id, '收获 id');
+    const row = this.#one('SELECT * FROM harvests WHERE id = ?', id);
+    if (!row) throw missing(`收获 ${id} 不存在`);
+    return this.#mapHarvest(row);
+  }
+
+  /** 新建收获卡片。同 ID 同内容视为成功（可安全重试），同 ID 不同内容报冲突。 */
+  createHarvest({ id, day, title, conclusion = '', points = [], todos = [], tags = [], source = '', sourceUrl = '',
+    projectId = null }) {
+    requireId(id, '收获 id');
+    const card = cleanHarvest({ title, conclusion, points, todos, tags, source, sourceUrl });
+    const cardDay = day ?? localDateOf(this.now(), this.timeZone);
+    if (!isValidDate(cardDay)) throw invalid('日期格式应为 YYYY-MM-DD');
+    if (projectId != null) requireId(projectId, '项目 id');
+    return this.#tx(() => {
+      const existing = this.#one('SELECT * FROM harvests WHERE id = ?', id);
+      const values = [cardDay, card.title, card.conclusion, JSON.stringify(card.points), JSON.stringify(card.todos),
+        JSON.stringify(card.tags), card.source, card.sourceUrl, projectId ?? null];
+      if (existing) {
+        const old = [existing.day, existing.title, existing.conclusion, existing.points, existing.todos,
+          existing.tags, existing.source, existing.source_url, existing.project_id ?? null];
+        if (old.every((v, i) => v === values[i])) return { ok: true, created: false };
+        throw conflict(`收获 ${id} 已存在且内容不同`);
+      }
+      if (projectId != null && !this.#one('SELECT id FROM projects WHERE id = ?', projectId)) {
+        throw missing(`项目 ${projectId} 不存在`);
+      }
+      const now = this.now();
+      this.#run(
+        'INSERT INTO harvests (id, day, title, conclusion, points, todos, tags, source, source_url, project_id,'
+          + ' created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        id, ...values, now, now,
+      );
+      return { ok: true, created: true };
+    });
+  }
+
+  /**
+   * 改收获卡片。未传的字段不变；projectId 传 null 表示取消关联。
+   * todos 里没带 taskId 的条目，若旧卡片有同文字的条目，沿用它的 taskId（避免改字后重复加入待办）。
+   */
+  updateHarvest({ harvestId, day, title, conclusion, points, todos, tags, sourceUrl, projectId }) {
+    requireId(harvestId, '收获 id');
+    if (todos !== undefined && !Array.isArray(todos)) throw invalid('待办 必须是数组');
+    return this.#tx(() => {
+      const row = this.#one('SELECT * FROM harvests WHERE id = ?', harvestId);
+      if (!row) throw missing(`收获 ${harvestId} 不存在`);
+      const oldTodos = JSON.parse(row.todos);
+      const merged = todos === undefined ? oldTodos : todos.map((item) => {
+        const text = typeof item === 'string' ? item : item?.text;
+        const taskId = item && typeof item === 'object' && item.taskId !== undefined
+          ? item.taskId : oldTodos.find((t) => t.text === String(text ?? '').trim())?.taskId ?? null;
+        return { text, taskId };
+      });
+      const card = cleanHarvest({
+        title: title === undefined ? row.title : title,
+        conclusion: conclusion === undefined ? row.conclusion : conclusion,
+        points: points === undefined ? JSON.parse(row.points) : points,
+        todos: merged,
+        tags: tags === undefined ? JSON.parse(row.tags) : tags,
+        source: row.source,
+        sourceUrl: sourceUrl === undefined ? row.source_url : sourceUrl,
+      });
+      const nextDay = day === undefined ? row.day : day;
+      if (!isValidDate(nextDay)) throw invalid('日期格式应为 YYYY-MM-DD');
+      const nextProject = projectId === undefined ? row.project_id ?? null : projectId;
+      if (nextProject != null) {
+        requireId(nextProject, '项目 id');
+        if (!this.#one('SELECT id FROM projects WHERE id = ?', nextProject)) throw missing(`项目 ${nextProject} 不存在`);
+      }
+      this.#run(
+        'UPDATE harvests SET day = ?, title = ?, conclusion = ?, points = ?, todos = ?, tags = ?, source_url = ?,'
+          + ' project_id = ?, updated_at = ? WHERE id = ?',
+        nextDay, card.title, card.conclusion, JSON.stringify(card.points), JSON.stringify(card.todos),
+        JSON.stringify(card.tags), card.sourceUrl, nextProject, this.now(), harvestId,
+      );
+      return { ok: true };
+    });
+  }
+
+  /** 删除收获卡片。由它生成的任务保留。 */
+  deleteHarvest({ harvestId }) {
+    requireId(harvestId, '收获 id');
+    return this.#tx(() => {
+      if (!this.#one('SELECT id FROM harvests WHERE id = ?', harvestId)) throw missing(`收获 ${harvestId} 不存在`);
+      this.#run('DELETE FROM harvests WHERE id = ?', harvestId);
+      return { ok: true };
+    });
+  }
+
+  /**
+   * 把卡片第 index 条待办变成任务（标题 = 待办文字），并记下 taskId。同一事务。
+   * course 传 '日计划' 表示只进时间轴不进待办清单（排进今天用，之后调 saveSchedule）。
+   * 同 taskId 重试返回 created:false；这条待办已对应另一个仍存在的任务时报冲突。
+   */
+  promoteHarvestTodo({ harvestId, index, taskId, course = '' }) {
+    requireId(harvestId, '收获 id');
+    requireId(taskId, '任务 id');
+    requireNonNegativeInt(index, '待办序号');
+    const cleanCourse = optionalText(course, '课程', 60);
+    return this.#tx(() => {
+      const row = this.#one('SELECT * FROM harvests WHERE id = ?', harvestId);
+      if (!row) throw missing(`收获 ${harvestId} 不存在`);
+      const todos = JSON.parse(row.todos);
+      const todo = todos[index];
+      if (!todo) throw missing(`第 ${index + 1} 条待办不存在`);
+      if (todo.taskId && this.#one('SELECT id FROM tasks WHERE id = ?', todo.taskId)) {
+        if (todo.taskId === taskId) return { ok: true, created: false, taskId };
+        throw conflict('这条待办已经加入过');
+      }
+      if (this.#one('SELECT id FROM tasks WHERE id = ?', taskId)) throw conflict(`任务 ${taskId} 已存在`);
+      this.#run('INSERT INTO tasks (id, title, course, project_id) VALUES (?, ?, ?, ?)',
+        taskId, clipText(todo.text, 120), cleanCourse, row.project_id ?? null);
+      todos[index] = { ...todo, taskId };
+      this.#run('UPDATE harvests SET todos = ?, updated_at = ? WHERE id = ?', JSON.stringify(todos), this.now(), harvestId);
+      return { ok: true, created: true, taskId };
+    });
+  }
+
+  #mapHarvest(row) {
+    const todos = JSON.parse(row.todos).map((t) => {
+      const task = t.taskId ? this.#one('SELECT completed_at FROM tasks WHERE id = ?', t.taskId) : null;
+      return { text: t.text, taskId: task ? t.taskId : null, taskDone: Boolean(task && task.completed_at != null) };
+    });
+    return {
+      id: row.id, day: row.day, title: row.title, conclusion: row.conclusion,
+      points: JSON.parse(row.points), todos, tags: JSON.parse(row.tags),
+      source: row.source, sourceUrl: row.source_url, projectId: row.project_id ?? null,
+      createdAt: row.created_at, updatedAt: row.updated_at,
+    };
   }
 
   // ---------------------------------------------------------------- 任务正文的每日变化（AI 回顾用）
@@ -1013,6 +1186,42 @@ function optionalText(value, label, max) {
   const text = value.trim();
   if (text.length > max) throw invalid(`${label} 最多 ${max} 字`);
   return text;
+}
+
+const clipText = (text, max) => Array.from(String(text)).slice(0, max).join('').trim();
+
+/** 校验并规整一张收获卡片。超长直接报错：页面的解析器已截断过，到这里还超说明是绕过页面的请求。 */
+function cleanHarvest({ title, conclusion, points, todos, tags, source, sourceUrl }) {
+  const L = HARVEST_LIMITS;
+  const list = (value, label, max) => {
+    if (!Array.isArray(value)) throw invalid(`${label} 必须是数组`);
+    if (value.length > max) throw invalid(`${label} 最多 ${max} 条`);
+    return value;
+  };
+  const cleanPoints = list(points, '要点', L.points)
+    .map((p) => optionalText(p, '要点', L.point)).filter(Boolean);
+  const cleanTodos = list(todos, '待办', L.todos).map((t) => {
+    const item = typeof t === 'string' ? { text: t, taskId: null } : t;
+    if (!item || typeof item !== 'object') throw invalid('待办格式无效');
+    const taskId = item.taskId == null ? null : requireId(item.taskId, '任务 id');
+    return { text: optionalText(item.text, '待办', L.todo), taskId };
+  }).filter((t) => t.text);
+  const cleanTags = [...new Set(list(tags, '标签', L.tags).flatMap((t) => {
+    if (typeof t !== 'string') throw invalid('标签必须是字符串');
+    return splitTags(t);
+  }))].slice(0, L.tags);
+  const url = optionalText(sourceUrl, '对话链接', L.url);
+  if (url) {
+    let parsed;
+    try { parsed = new URL(url); } catch { throw invalid('对话链接应为 http(s) 地址'); }
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw invalid('对话链接应为 http(s) 地址');
+  }
+  return {
+    title: requireText(title, '标题', L.title),
+    conclusion: optionalText(conclusion, '结论', L.conclusion),
+    points: cleanPoints, todos: cleanTodos, tags: cleanTags,
+    source: optionalText(source, '来源', 20), sourceUrl: url,
+  };
 }
 
 function requirePositiveInt(value, label) {

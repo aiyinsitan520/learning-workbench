@@ -15,6 +15,7 @@ import { showAiSettings } from './ai-settings.js';
 import { bindProjects } from './projects.js';
 import { bindPipTimer } from './pip.js';
 import { bindUpdates } from './update.js';
+import { showHarvest, openHarvestCapture } from './harvest.js';
 import {
   PAGES, LEGACY_PAGES, activityPage, calendarPage, focusPage, mmss, renderDone,
   renderPending, renderProgress, renderRail, taskTitle, todoTasks, weekdayOf, PLAN_COURSE,
@@ -23,7 +24,7 @@ import {
 const FOLD_KEY = 'workbench.compact';
 const FONT_KEY = 'workbench.font';
 const MONTH_PAGES = new Set(['calendar', 'activity']);
-const PAGE_KEYS = { 1: 'home', 2: 'calendar', 3: 'focus', 4: 'activity', 5: 'review' };
+const PAGE_KEYS = { 1: 'home', 2: 'calendar', 3: 'focus', 4: 'activity', 5: 'review', 6: 'harvest' };
 
 const state = {
   page: new URLSearchParams(location.search).get('page') === 'review' ? 'review' : 'home',
@@ -154,6 +155,10 @@ function drawMain(editorTask) {
   }
   if (state.page === 'ai') {
     showAiSettings($('#mainContent'), moduleCtx);
+    return;
+  }
+  if (state.page === 'harvest') {
+    showHarvest($('#mainContent'), moduleCtx);
     return;
   }
   const body = { calendar: calendarPage, focus: focusPage, activity: activityPage }[state.page](state);
@@ -513,6 +518,12 @@ document.addEventListener('keydown', (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
     event.preventDefault();
     void taskNotes.saveNow();
+    return;
+  }
+  // Ctrl/⌘+Shift+V（不在输入框里时）：收获速记，粘贴对话精华。输入框里保留浏览器的「粘贴为纯文本」。
+  if (!inField && (event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'v') {
+    event.preventDefault();
+    openHarvestCapture(moduleCtx);
     return;
   }
   if (inField || event.metaKey || event.ctrlKey || event.altKey) return;

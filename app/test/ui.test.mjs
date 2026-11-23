@@ -45,7 +45,7 @@ test('日计划：06:00 到 00:00 共 18 个小时', async () => {
 test('首屏渲染：三栏、五个页面入口、空态', async () => {
   await page.click('[data-sidebar-view="tasks"]');
   assert.equal(await page.text('#contextPage'), '今日工作台');
-  assert.equal(await page.count('header #tools .tool'), 5);
+  assert.equal(await page.count('header #tools .tool'), 6, '五个原页面 + 收获');
   assert.equal(await page.count('.right .tool'), 0, '页面入口已移到顶栏');
   assert.equal(await page.count('#pending .task'), 0);
   assert.equal((await page.text('#pending')).trim(), '');
@@ -286,7 +286,7 @@ test('顶栏分组工具条：五页切换，选中底板跟随，右栏概况�
   await page.click('#tools [data-page="home"]');
   await page.waitFor('document.querySelector("#taskEditor")');
   assert.deepEqual(await page.evaluate('return [...document.querySelectorAll("header #tools .tool")].map(b => b.textContent.trim());'),
-    ['今日', '日历', '专注', '统计', '维护']);
+    ['今日', '日历', '专注', '统计', '维护', '收获']);
   const pillOn = (key) => `(() => {
     const pill = document.querySelector('#tools .toolbar-pill').getBoundingClientRect();
     const btn = document.querySelector('#tools [data-page="${key}"]').getBoundingClientRect();

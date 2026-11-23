@@ -1,5 +1,5 @@
 /** Application boundary for the desktop adapter. Times are Unix seconds. */
-export type Page = "home" | "calendar" | "focus" | "activity" | "review" | "ai";
+export type Page = "home" | "calendar" | "focus" | "activity" | "review" | "ai" | "harvest";
 export type StudyDay = string; // Workbench-time-zone YYYY-MM-DD (Asia/Shanghai by default).
 export interface Task {
   id: string;
@@ -96,7 +96,16 @@ export type Command =
   | { type: "createProject"; id: string; title: string; goal?: string; startDay: StudyDay; dueDay?: StudyDay | null; dailyMinutes?: number | null; mainTaskId: string }
   | { type: "updateProject"; projectId: string; title?: string; goal?: string; startDay?: StudyDay; dueDay?: StudyDay | null; dailyMinutes?: number | null }
   | { type: "setProjectState"; projectId: string; action: "complete" | "reopen" | "archive" | "unarchive" }
-  | { type: "saveProjectLog"; projectId: string; day: StudyDay; note: string; progress?: number | null };
+  | { type: "saveProjectLog"; projectId: string; day: StudyDay; note: string; progress?: number | null }
+  // v4：收获库（见文末 Harvest）
+  | { type: "createHarvest"; id: string; day?: StudyDay; title: string; conclusion?: string; points?: string[];
+      todos?: (string | { text: string; taskId?: string | null })[]; tags?: string[]; source?: string;
+      sourceUrl?: string; projectId?: string | null }
+  | { type: "updateHarvest"; harvestId: string; day?: StudyDay; title?: string; conclusion?: string; points?: string[];
+      todos?: (string | { text: string; taskId?: string | null })[]; tags?: string[]; sourceUrl?: string;
+      projectId?: string | null }
+  | { type: "deleteHarvest"; harvestId: string }
+  | { type: "promoteHarvestTodo"; harvestId: string; index: number; taskId: string; course?: "" | "日计划" };
 export type CommandResult =
   | { ok: true }
   | { ok: false; reason: "invalid" | "missing" | "conflict" | "storage" };
@@ -262,4 +271,41 @@ export interface UpdateStatus {
  *   POST /api/update { action: 'install' }             → { update, result: { restarting?: true; opened?: true; message } }
  *   POST /api/update { action: 'settings', autoCheck } → { update }
  *   不能执行的操作（没有新版、不能安装、未下载完）→ 409。
+ */
+
+// ------------------------------------------------------------- v4: 收获库（对话精华速记）
+/**
+ * 用户在 ChatGPT 等处问完问题，把精华存成卡片。原文不入库。
+ * 固定格式与解析：app/public/js/harvest-format.js（页面与服务端共用，纯函数）：
+ *   parseHarvest(text) → { ok: true, draft: HarvestDraft } | { ok: false }
+ *   formatHarvest(card) → 固定格式文本；CHATGPT_PROMPT = 给 ChatGPT 的提炼口令；HARVEST_LIMITS = 各字段上限
+ * 上限：标题 60 字、结论 500、要点 12 条×300、待办 12 条×120、标签 10 个×20、链接 500。
+ */
+export interface HarvestDraft {
+  title: string; conclusion: string; points: string[]; todos: string[]; tags: string[]; sourceUrl: string;
+}
+export interface Harvest {
+  id: string;
+  day: StudyDay;                // 归哪一天（默认存的当天），每日回顾按它取
+  title: string;
+  conclusion: string;
+  points: string[];
+  todos: { text: string; taskId: string | null; taskDone: boolean }[]; // taskId = 已由这条生成的任务（任务被删则为 null）
+  tags: string[];               // 不带 #
+  source: string;               // 'chatgpt' | 'ai' | 'manual' …，只作展示
+  sourceUrl: string;            // '' = 没有
+  projectId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+/**
+ *   GET  /api/harvests?q=&tag=&limit=50&offset=0 → { harvests: Harvest[] (新的在前), total: number, tags: { tag, count }[] }
+ *   POST /api/ai/distill { text }               → { draft: HarvestDraft, via: "format" | "ai", provider?, model? }
+ *        先按固定格式解析，成功不调模型；否则用当前供应商提炼。未设置模型 → 400「还没有设置模型…」，页面退回手填。
+ *        text 上限 60000 字。只返回草稿，不写库；保存走 createHarvest。
+ *   promoteHarvestTodo：同一事务里新建任务（标题 = 待办文字，归属卡片的项目）并记下 taskId；
+ *        「排进今天」= promote(course:'日计划') 之后 saveSchedule。
+ *   备份：/api/export 与 /api/import 的表清单含 harvests。
+ * 前端模块：app/public/js/harvest.js 导出 showHarvest(root, ctx: ModuleContext)（「收获」页，快捷键 6）
+ *   与 openHarvestCapture(ctx, text?)（粘贴框；全局 Ctrl/⌘+Shift+V 在非输入框时调用）。样式在 harvest.css，只用令牌。
  */

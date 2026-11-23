@@ -234,8 +234,8 @@ test('导出：整库 JSON 带格式标识与全部表', async () => {
   assert.ok(dump.exportedAt > 0);
   assert.deepEqual(
     Object.keys(dump.tables).sort(),
-    // v2 起多了长期项目、项目日志、AI 回顾三张表；AI 密钥不在库里，永远不会出现在导出里
-    ['daily_reviews', 'day_notes', 'focus_sessions', 'note_blocks', 'project_logs', 'projects',
+    // v2 起多了长期项目、项目日志、AI 回顾三张表，v4 多了收获库；AI 密钥不在库里，永远不会出现在导出里
+    ['daily_reviews', 'day_notes', 'focus_sessions', 'harvests', 'note_blocks', 'project_logs', 'projects',
       'schedule_blocks', 'task_note_days', 'task_notes', 'tasks'],
   );
   assert.ok(dump.tables.tasks.length >= 1, '至少应有前面用例建的任务');

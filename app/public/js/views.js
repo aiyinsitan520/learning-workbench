@@ -10,6 +10,7 @@ export const PAGES = {
   focus: '专注',
   activity: '学习统计',
   review: '每日维护',
+  harvest: '收获',
   ai: '模型接入', // 不进顶栏，由顶栏右侧的齿轮按钮进入
 };
 
@@ -20,6 +21,7 @@ export const NAV_LABELS = {
   focus: '专注',
   activity: '统计',
   review: '维护',
+  harvest: '收获',
 };
 
 // 旧路由兼容：外部链接仍可能带这些名字，统一回到任务正文所在的首页。

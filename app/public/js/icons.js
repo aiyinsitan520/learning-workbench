@@ -8,6 +8,7 @@ const paths = {
   flow: 'M8 2h8v5H8z M2 16h7v5H2z M15 16h7v5h-7z M12 7v5 M5.5 16v-4h13v4',
   activity: 'M3 19V9 M9 19V4 M15 19v-7 M21 19V6',
   review: 'M4 4h16v12H9l-5 4z M8 9h8 M8 12h5',
+  harvest: 'M12 21V10 M12 10C12 6 9 3 5 3c0 4 3 7 7 7z M12 13c0-4 3-7 7-7 0 4-3 7-7 7z',
   sidebar: 'M3 4h18v16H3z M9 4v16',
   download: 'M12 3v12 M8 11l4 4 4-4 M4 17v3h16v-3',
   folder: 'M3 6h6l2 3h10v11H3z',

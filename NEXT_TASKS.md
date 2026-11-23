@@ -223,3 +223,45 @@ Claude 追加：旧 yesterday.test.mjs 仍等 .review-page 画布，v2 看板上
 待用户：① 生成签名密钥并设 GitHub secret UPDATE_SIGNING_KEY（node desktop/update-keys.mjs init，未做）；② 提交推送后打 v1.1.0 标签发布。没有公钥的版本只能提示到发布页手动下载；没有 secret 时发布任务会失败、不会发出无签名清单。
 未验证：Mac 打开 DMG 路径（无真机）；GitHub 真实 Release 上的清单读回（首次发 v1.1.0 时由 workflow 的 cmp 步骤验证）。
 完成｜Claude｜app/lib/update-config.js｜2026-11-23 用户同意后生成更新签名密钥：公钥写入源码，私钥在本机 %APPDATA%\learning-workbench-release\update-signing-key.pem（未入库），GitHub secret UPDATE_SIGNING_KEY 已设置。真实私钥签名自检通过，快速验收 PASS。剩余：推送后打 v1.1.0 标签发布；私钥需用户另外备份。
+
+## 2026-11-23 · 问题 1：对话收获速记（用户已确认按推荐方案开工：单独收获库、暂不做书签按钮、不存原文）
+
+用户原话：「记录计划和规划，以及总结还是比较繁琐，我一般在chatgpt网页端问完问题，有所收获，就想记录，但是内容较长，我只想记录精华，但是总结有点麻烦」
+
+思路：让 ChatGPT 自己做总结，因为它看得到整段对话，而且不额外花钱。它按固定格式输出精华，用户一键复制，粘进工作台就自动拆好；格式不对或者粘的是原文，再用「模型接入」里的当前模型提炼。精华里的「待办」可以一键转成待办或日计划，顺带解决记计划麻烦的问题。
+
+固定格式（ChatGPT 输出，工作台解析）：
+    【收获】标题（≤20 字）
+    结论：一句话
+    要点：
+    - …（3–5 条）
+    待办：
+    - …（没有写「无」）
+    标签：#… #…
+
+待用户拍板：① 收获单独存一个「收获」库（推荐），还是写进任务正文/项目日志；② 是否同时做 chatgpt.com 一键发送（书签按钮），推荐先不做，粘贴版用一周再定；③ 原文是否保存（推荐不存，只存精华和对话链接）。
+
+工单 T-H1：收获的数据层与提炼接口
+tier：hard  risk：low  执行：Claude（架构文件）
+可改文件：architecture/migrations/004_harvests.sql（新）、architecture/workbench.d.ts、app/lib/db.js、app/lib/harvest.js（新，固定格式解析）、app/lib/ai-routes.js（POST /api/ai/distill）、app/server.js（GET /api/harvests）、app/public/index.html（「收获」页插槽）、app/test/harvest.test.js（新）
+接口约定：表 harvests(id, day, title, conclusion, points, todos, tags, source, source_url, task_id?, project_id?, created_at, updated_at)；命令 createHarvest / updateHarvest / deleteHarvest 走 /api/command；parseHarvest(text) 返回 {ok, harvest} 或 {ok:false}，解析失败才调 AI；AI 未配置时回退为手动填写，不报错。
+影响面：旧库自动迁移到 v4 并备份，旧页面不受影响。
+完成标准：固定格式和三种变体（多空行、全角冒号、没有待办）都能解析；迁移和重开 PASS；verify\run_all.cmd 通过。
+
+工单 T-H2：「收获」页面（粘贴 → 预览改 → 保存 → 列表/搜索）
+tier：ui  risk：low  执行：DSH  依赖：T-H1
+可改文件：app/public/js/harvest.js（新）、app/public/harvest.css（新，只用令牌）、app/test/ui-harvest.test.mjs（新）
+完成标准：任意页面按 Ctrl+Shift+V 或点顶栏「收获」打开粘贴框；粘贴固定格式即时出卡片，可改后保存；待办一行一键「加入待办」或「排进今天」；按标签、关键词筛选；390px 不溢出；六套皮肤通过；verify\run_all.cmd full 通过。
+
+工单 T-H3：收获进入回顾与 AI 上下文，并配使用说明
+tier：easy  risk：low  执行：Codex low  依赖：T-H1
+可改文件：app/lib/digest.js、app/lib/context-md.js、docs/DATA_FOR_AI.md、docs/收获速记.md（新，含 ChatGPT 提炼口令）、对应测试
+完成标准：当天的收获出现在每日维护的 AI 回顾素材和 /api/context 里；说明文档写清楚如何把口令设成 ChatGPT 自定义指令；verify\run_all.cmd 通过。
+
+后续可选 T-H4：chatgpt.com 书签按钮一键发送（本机接口要加一次性令牌和来源检查），等 T-H2 用一周后再定。
+
+完成｜Claude｜T-H1 收获数据层与提炼接口｜2026-11-23
+改动：architecture/migrations/004_harvests.sql（新）、workbench.d.ts（v4 一节）、app/lib/db.js（readHarvests/readHarvestsOnDay/readHarvest/createHarvest/updateHarvest/deleteHarvest/promoteHarvestTodo，SCHEMA_VERSION=4）、app/lib/ai-routes.js（POST /api/ai/distill）、app/server.js（GET /api/harvests、四个命令、备份表加 harvests）、app/public/js/harvest-format.js（新，页面与服务端共用的解析器和 ChatGPT 口令）、harvest.js/harvest.css（占位，T-H2 替换）、index.html、js/app.js（第 6 页「收获」、Ctrl/⌘+Shift+V）、js/views.js、js/icons.js、app/test/harvest.test.js（新，10 项）。
+改动旧断言（理由：版本和页面数按设计增加）：v2/review 测试的 user_version 3→4；server 导出表清单加 harvests；ui 顶栏工具 5→6 个、名称加「收获」。
+验收：node --test app/test/harvest.test.js 10/10；verifyun_all.cmd full PASS（架构 17×2、契约 11、行为 17、仓储/服务 93/93、浏览器 UI 61/61）。
+未做：7321 服务未重启（真实库仍是 v3，重启时自动迁移并备份），等 T-H2/T-H3 完成后统一重启。
