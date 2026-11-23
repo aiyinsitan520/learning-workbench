@@ -11,3 +11,5 @@
 2026-11-23｜Claude｜生成更新签名密钥（公钥入源码，私钥在本机用户目录，secret UPDATE_SIGNING_KEY 已设）。签名自检与快速验收通过。下一步：推送并打 v1.1.0 标签。
 
 2026-11-23｜Claude｜推送 main 至 1d27510，发布 v1.1.0（Actions 45141447534：三平台打包与 release 全部 success）。公开 latest.json 验签通过，三平台包大小与 SHA-256 和 GitHub digest 一致；7321 源码版实际检查结果为 latest。NEXT_TASKS.md 正由 T-H1 会话修改，本条未写入，待其提交后补记。
+
+2026-11-23｜Claude（/team）｜收获速记三单完成：T-H1 数据层与提炼接口（Claude，4d02751、bbc2bb0）、T-H2 收获页（Codex，7f85c05）、T-H3 回顾与快照（Codex，9a5fb77）。full PASS（17×2、11、17、97/97、UI 71/71）。7321 已重启，真实库迁到 v4 并自动备份。DSH 未登记本工作区，改派 Codex。遗留：T-H4 书签按钮待用户用一周后决定；用户其余问题未给出。下一位从 NEXT_TASKS.md「问题 1：对话收获速记」段继续。

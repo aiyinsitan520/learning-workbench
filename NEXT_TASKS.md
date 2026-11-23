@@ -249,7 +249,7 @@ tier：hard  risk：low  执行：Claude（架构文件）
 完成标准：固定格式和三种变体（多空行、全角冒号、没有待办）都能解析；迁移和重开 PASS；verify\run_all.cmd 通过。
 
 工单 T-H2：「收获」页面（粘贴 → 预览改 → 保存 → 列表/搜索）
-tier：ui  risk：low  执行：DSH  依赖：T-H1
+tier：ui  risk：low  执行：Codex（2026-11-23 改派：DSH 只登记了 E:\电脑总管，未登记本工作区）  依赖：T-H1
 可改文件：app/public/js/harvest.js（新）、app/public/harvest.css（新，只用令牌）、app/test/ui-harvest.test.mjs（新）
 完成标准：任意页面按 Ctrl+Shift+V 或点顶栏「收获」打开粘贴框；粘贴固定格式即时出卡片，可改后保存；待办一行一键「加入待办」或「排进今天」；按标签、关键词筛选；390px 不溢出；六套皮肤通过；verify\run_all.cmd full 通过。
 
@@ -265,3 +265,10 @@ tier：easy  risk：low  执行：Codex low  依赖：T-H1
 改动旧断言（理由：版本和页面数按设计增加）：v2/review 测试的 user_version 3→4；server 导出表清单加 harvests；ui 顶栏工具 5→6 个、名称加「收获」。
 验收：node --test app/test/harvest.test.js 10/10；verifyun_all.cmd full PASS（架构 17×2、契约 11、行为 17、仓储/服务 93/93、浏览器 UI 61/61）。
 未做：7321 服务未重启（真实库仍是 v3，重启时自动迁移并备份），等 T-H2/T-H3 完成后统一重启。
+完成｜Codex｜T-H2 收获页面（7f85c05）｜2026-11-23：粘贴框（固定格式即时解析、用 AI 提炼、手填）、收获页（口令复制、搜索、标签、加载更多、编辑/复制/删除）、待办「加入待办」「排进今天」。ui-harvest.test.mjs 10/10。Claude 验收补两处边界：凌晨从 06:00 起排、恰好到 24:00 允许。用量 Codex high 约 17.5 分钟，输入 292.6 万（缓存 257.6 万）、输出 2.2 万 token。
+完成｜Codex｜T-H3 收获进入回顾与快照（9a5fb77）｜2026-11-23：reviewMaterial/reviewHash（无收获时指纹不变）、/api/context JSON 与 Markdown、AI 回顾提示词、docs/收获速记.md、DATA_FOR_AI.md、README。harvest-review.test.js 4/4。用量 Codex low 约 6 分钟，输入 74.7 万（缓存 68.3 万）、输出 0.58 万 token。
+合并验收｜Claude｜2026-11-23：verify\run_all.cmd full PASS（架构 17×2、契约 11、行为 17、仓储/服务 97/97、浏览器 UI 71/71）；临时库演示服务实看收获页与粘贴框。7321 已用停止+启动脚本重启，真实库 v3→v4 自动迁移，备份 app/data/workbench.db.bak-v3-20261123T091726，/api/harvests 返回 0 条、health 正常。
+本轮说明：DSH 只登记了 E:\电脑总管，T-H2 按升级顺序改派 Codex；两单执行者均未提交，由 Claude 验收后按工单分别提交。Codex 沙箱里没有 python，快速验收的 3 个 Python 检查须由调度方补跑。
+待用户：在 ChatGPT 自定义指令里放口令（见 docs/收获速记.md 或收获页「复制 ChatGPT 口令」），真实用一周后决定是否做 T-H4 书签按钮；用户提到「还有几个问题」，目前只给了第 1 个。
+下一位：从本段继续。若改收获页，从 app/public/js/harvest.js 与 app/test/ui-harvest.test.mjs 继续；改格式或解析，只改 app/public/js/harvest-format.js（页面与服务端共用）并跑 harvest.test.js。
+（两单并行，执行者不提交，Claude 验收后统一提交；契约补充见 bbc2bb0）
