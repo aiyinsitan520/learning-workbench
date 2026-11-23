@@ -66,6 +66,7 @@ export function paint(canvas, width, facts, summary, ai, options = {}) {
   ctx.fillStyle = '#cbd7c8';
   ctx.fillRect(pad, 214, width - pad*2, 1);
   draw(aiLabel ?? (ai ? '贾维斯喵 · AI 回顾' : '贾维斯喵 · 本地回顾'), pad, 243, 'bold 14px', '#547863');
-  lines.forEach((line,i) => draw(line, pad, 274 + i*28, size + 'px', '#30463b'));
+  // 【小标题】行加粗，方便在图片里分段阅读
+  lines.forEach((line,i) => draw(line, pad, 274 + i*28, (line.startsWith('【') ? 'bold ' : '') + size + 'px', '#30463b'));
   canvas.setAttribute('aria-label', facts.day + '。完成 ' + facts.completed.length + ' 项，专注 ' + duration(facts.seconds) + '。' + summary);
 }

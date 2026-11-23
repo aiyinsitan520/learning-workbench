@@ -78,7 +78,7 @@ export function showAiSettings(host, ctx) {
     </div><p class="ai-feedback" data-ai-status role="status">正在读取配置…</p>
     <div data-ai-content></div>
     <footer class="ai-privacy"><strong>数据与隐私</strong>
-      <p>生成回顾时会将昨日完成的任务名称、专注用时、计划块和长期项目进展发送给当前模型。任务正文不会发送。</p>
+      <p>生成回顾时会把这一天的完成任务、专注用时、计划块、长期项目进展，以及<strong>这一天新写的任务正文</strong>（和当天接触过的任务的正文摘录）、前 6 天的投入概况发送给当前模型，用来总结记录要点、收获和成长。</p>
       <p>Key 保存在本机 <code>app/data/ai-providers.json</code>，导出文件不包含 Key。</p>
     </footer>`;
   host.replaceChildren(root);

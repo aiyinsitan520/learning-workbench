@@ -111,3 +111,5 @@
   .board-rowtitle{flex:1 1 100%}
   .board-row small{margin-left:auto}
 }
+/* AI 回顾的小标题（【今日概览】【记录要点】…） */
+.board-text .board-h{display:inline-block;margin-top:6px;color:var(--accent-ink);font-weight:700}

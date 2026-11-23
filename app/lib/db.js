@@ -13,7 +13,7 @@ export const SCHEMA_PATH = join(HERE, '..', '..', 'architecture', 'schema.sql');
 export const MIGRATIONS_DIR = join(HERE, '..', '..', 'architecture', 'migrations');
 
 // v1 = schema.sql；之后每一版是 migrations/00N_*.sql，文件自己写 PRAGMA user_version = N。
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 export const PROJECT_COURSE = '长期项目';
 const MAX_TEXT = 4000;
 const MAX_TASK_NOTE = 32000;
@@ -49,11 +49,12 @@ export function openDatabase(path, { timeZone = 'Asia/Shanghai', now = nowSecond
     } else if (version > SCHEMA_VERSION) {
       throw new WorkbenchError('storage', `数据库版本 ${version} 比程序期望的 ${SCHEMA_VERSION} 新，请升级程序`);
     }
+    // task_notes 表要在迁移之前就存在：003 迁移会把已有正文记成基线
+    db.exec(readFileSync(join(dirname(SCHEMA_PATH), 'task_notes.sql'), 'utf8'));
     migrate(db, path);
     if (Number(db.prepare('PRAGMA foreign_keys').get().foreign_keys) !== 1) {
       throw new WorkbenchError('storage', '无法开启外键约束');
     }
-    db.exec(readFileSync(join(dirname(SCHEMA_PATH), 'task_notes.sql'), 'utf8'));
   } catch (err) {
     try {
       db.close();
@@ -162,6 +163,11 @@ class Workbench {
       this.#run(`INSERT INTO task_notes (task_id, body, revision) VALUES (?, ?, ?)
         ON CONFLICT (task_id) DO UPDATE SET body=excluded.body, revision=excluded.revision`,
       taskId, body, revision);
+      // 按天留底：同一天多次保存只留最后一份，AI 回顾据此算「当天新写了什么」
+      const now = this.now();
+      this.#run(`INSERT INTO task_note_days (task_id, day, body, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT (task_id, day) DO UPDATE SET body=excluded.body, updated_at=excluded.updated_at`,
+      taskId, localDateOf(now, this.timeZone), body, now);
       return { revision };
     });
   }
@@ -371,6 +377,57 @@ class Workbench {
       ...mapProject(p),
       logs: this.#all('SELECT * FROM project_logs WHERE project_id = ? ORDER BY day', p.id).map(mapProjectLog),
     }));
+  }
+
+  // ---------------------------------------------------------------- 任务正文的每日变化（AI 回顾用）
+
+  /**
+   * 某天的任务正文素材：
+   * - edited：当天改过正文的任务。added = 当天这份与之前最近一份相比新增的行（之前没有就是全文）。
+   * - 当天专注过 / 完成 / 排过计划、但当天没改正文的任务，附当前正文摘录（edited=false）。
+   * 长度有上限，避免把整本笔记塞给模型。
+   */
+  readNoteChanges(day, timeZone = this.timeZone, { perTask = 2500, context = 800, total = 12000 } = {}) {
+    if (!isValidDate(day)) throw invalid(`日期格式应为 YYYY-MM-DD：${day}`);
+    const { start, end } = dayRange(day, timeZone);
+    const cut = (s, n) => (s.length > n ? `${s.slice(0, n)}…（已截断）` : s);
+    const out = [];
+    const edited = this.#all(
+      'SELECT d.task_id, d.body, t.title, t.course, t.project_id FROM task_note_days d JOIN tasks t ON t.id = d.task_id'
+        + ' WHERE d.day = ? ORDER BY d.updated_at',
+      day,
+    );
+    for (const row of edited) {
+      const prev = this.#one(
+        'SELECT body FROM task_note_days WHERE task_id = ? AND day < ? ORDER BY day DESC LIMIT 1', row.task_id, day,
+      );
+      const added = addedLines(prev?.body ?? '', row.body);
+      if (!added.trim()) continue;
+      out.push({ taskId: row.task_id, title: row.title, course: row.course, projectId: row.project_id ?? null,
+        edited: true, firstTime: !prev, added: cut(added, perTask) });
+    }
+    const seen = new Set(out.map((n) => n.taskId));
+    const touched = this.#all(
+      `SELECT DISTINCT t.id, t.title, t.course, t.project_id, n.body FROM tasks t JOIN task_notes n ON n.task_id = t.id
+        WHERE length(trim(n.body)) > 0 AND (
+          t.completed_at >= ? AND t.completed_at < ?
+          OR EXISTS (SELECT 1 FROM focus_sessions f WHERE f.task_id = t.id AND f.state = 'finished' AND f.started_at >= ? AND f.started_at < ?)
+          OR EXISTS (SELECT 1 FROM schedule_blocks b WHERE b.task_id = t.id AND b.starts_at >= ? AND b.starts_at < ?))`,
+      start, end, start, end, start, end,
+    );
+    for (const row of touched) {
+      if (seen.has(row.id)) continue;
+      out.push({ taskId: row.id, title: row.title, course: row.course, projectId: row.project_id ?? null,
+        edited: false, firstTime: false, body: cut(row.body.trim(), context) });
+    }
+    // 总量上限：先保当天新写的
+    let budget = total;
+    return out.filter((n) => {
+      const size = (n.added ?? n.body ?? '').length;
+      if (size > budget) return false;
+      budget -= size;
+      return true;
+    });
   }
 
   // ---------------------------------------------------------------- AI 回顾缓存
@@ -908,6 +965,12 @@ function mapProject(p) {
 
 function mapProjectLog(row) {
   return { day: row.day, note: row.note, progress: row.progress ?? null, updatedAt: row.updated_at };
+}
+
+/** after 相比 before 新增的行（按去掉首尾空白后的整行比较，保持原顺序，忽略空行）。 */
+export function addedLines(before, after) {
+  const old = new Set(String(before).split(/\r?\n/).map((l) => l.trim()).filter(Boolean));
+  return String(after).split(/\r?\n/).filter((l) => l.trim() && !old.has(l.trim())).join('\n');
 }
 
 /** 两个 YYYY-MM-DD 之间相差几天（b - a），只做日历运算。 */

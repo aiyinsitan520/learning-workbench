@@ -179,7 +179,7 @@ function aiMarkup() {
       <h2>AI 回顾</h2>
       ${review ? `<span class="board-meta">${esc(review.provider || '模型')} · ${esc(review.model || '')} · ${esc(when)}</span>` : ''}
     </div>
-    <p class="board-text">${esc(summary)}</p>
+    <p class="board-text">${reviewHtml(summary)}</p>
     ${regenerate ? '<span class="board-tag">记录有更新</span>' : ''}
     <div class="board-actions">
       ${state.aiBusy ? '<button type="button" class="light" disabled>正在生成…</button>' : button}
@@ -187,6 +187,13 @@ function aiMarkup() {
     </div>
     ${state.aiError ? `<p class="board-error" role="alert">${esc(state.aiError)}</p>` : ''}
   </section>`;
+}
+
+/** 回顾正文：保留换行，把【今日概览】这类小标题加粗。 */
+function reviewHtml(text) {
+  return esc(text).split('\n')
+    .map((line) => line.replace(/^\s*(【[^】]{1,8}】)/, '<b class="board-h">$1</b>'))
+    .join('\n');
 }
 
 /** 生成时间按工作台时区的钟面显示；时区未知时退回浏览器的本地时间。 */

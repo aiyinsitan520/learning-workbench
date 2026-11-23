@@ -88,6 +88,38 @@ export function dayDigest(wb, day, timeZone = wb.timeZone) {
   };
 }
 
+/**
+ * AI 每日回顾的全部素材（只给 /api/ai/review 用，不进 AI 数据快照导出）：
+ * - digest：当天的完成、专注、计划、长期项目（同 dayDigest）
+ * - notes：当天任务正文的新增内容（added）和当天接触过的任务的正文摘录（body），见 db.readNoteChanges
+ * - recent：之前 6 天的投入概况与当时的回顾摘要，用来谈「成长」
+ */
+export function reviewMaterial(wb, day, timeZone = wb.timeZone) {
+  const digest = dayDigest(wb, day, timeZone);
+  const notes = wb.readNoteChanges(day, timeZone);
+  const recent = [];
+  for (let i = 6; i >= 1; i -= 1) {
+    const d = shiftDate(day, -i);
+    const v = wb.readDay(d, timeZone);
+    const review = wb.readDailyReview(d);
+    recent.push({
+      day: d,
+      weekday: weekdayOf(d),
+      focusMinutes: Math.round(v.focusSummary.elapsedSeconds / 60),
+      completed: v.completedOnDay.map((t) => t.title).slice(0, 8),
+      // 当天写过正文的任务数（只数「改过正文」的，不含只是接触过的）
+      noteTasks: wb.readNoteChanges(d, timeZone, { total: Infinity }).filter((n) => n.edited).length,
+      reviewExcerpt: review ? review.text.replace(/\s+/g, ' ').slice(0, 160) : '',
+    });
+  }
+  return { digest, notes, recent };
+}
+
+/** 回顾的指纹：当天统计或当天正文变了就变（之前几天的变化不触发重写）。 */
+export function reviewHash(material) {
+  return factsHash({ digest: material.digest, notes: material.notes.map((n) => [n.taskId, n.added ?? n.body]) });
+}
+
 /** 「昨天」：工作台时区下今天的前一天。 */
 export function yesterdayOf(wb, now = wb.now()) {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: wb.timeZone }).format(new Date(now * 1000));

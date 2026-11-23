@@ -200,6 +200,8 @@ export interface AiPreset {
  *   GET  /api/ai/export                       → { format: "learning-space-ai-providers", version: 1, providers: 去掉 apiKey 的记录 }
  *   POST /api/ai/review            { day?: StudyDay; force?: boolean }
  *                                             → { review: DailyReview }        （未变且未 force 直接返回缓存；用当前供应商生成后存 daily_reviews）
+ *        v3：素材 = digest.reviewMaterial(day)：当天统计 + 当天任务正文新增（task_note_days 按天留底求差）与接触过的正文摘录
+ *        + 前 6 天概况；输出五节【今日概览】【记录要点】【收获】【成长】【明天建议】，300–600 字；指纹 reviewHash 含当天正文。
  */
 
 // ------------------------------------------------------------- v2: 前端模块上下文（app.js → board / ai-settings / projects）

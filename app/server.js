@@ -8,7 +8,7 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase, WorkbenchError, SCHEMA_PATH } from './lib/db.js';
 import { isValidDate, localDateOf, nowSeconds } from './lib/time.js';
-import { dayDigest, factsHash, yesterdayOf, contextSnapshot } from './lib/digest.js';
+import { dayDigest, yesterdayOf, contextSnapshot, reviewMaterial, reviewHash } from './lib/digest.js';
 import { contextMarkdown } from './lib/context-md.js';
 import { handleAiRoute } from './lib/ai-routes.js';
 import { createIslandController, defaultIslandLauncher } from './lib/island.js';
@@ -32,7 +32,7 @@ const MIME = {
 const BODY_LIMIT = 512 * 1024;
 // 顺序即导入顺序：被引用的表在前。AI 密钥不在库里（app/data/ai-providers.json），不会被导出。
 const BACKUP_TABLES = ['projects', 'tasks', 'schedule_blocks', 'focus_sessions', 'day_notes', 'note_blocks',
-  'task_notes', 'project_logs', 'daily_reviews'];
+  'task_notes', 'task_note_days', 'project_logs', 'daily_reviews'];
 
 export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root = HERE, aiConfigPath, fetchImpl,
   islandLauncher = defaultIslandLauncher(root) } = {}) {
@@ -102,8 +102,10 @@ async function handleApi(wb, req, res, url, publicDir, ai, island) {
         // 每日维护看板：某天（默认昨天）的摘要 + 已存的 AI 回顾（stale 表示记录在回顾之后又改过）
         const day = url.searchParams.get('day') || yesterdayOf(wb);
         if (!isValidDate(day)) throw new WorkbenchError('invalid', '日期格式应为 YYYY-MM-DD');
-        const digest = dayDigest(wb, day);
-        const hash = factsHash(digest);
+        // stale 的口径和生成回顾时一致：当天统计或当天任务正文变了都算
+        const material = reviewMaterial(wb, day);
+        const digest = material.digest;
+        const hash = reviewHash(material);
         const saved = wb.readDailyReview(day);
         const review = saved ? { ...saved, stale: saved.factsHash !== hash } : null;
         sendJson(res, 200, { ok: true, digest, factsHash: hash, review, today: localDateOf(nowSeconds(), wb.timeZone) });
