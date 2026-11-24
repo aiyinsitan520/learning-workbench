@@ -308,3 +308,4 @@ Codex 队列 W1 → W3 → W8a → W5 → W6；DSH 队列 W2 → W4 → W1b → 
 进行中｜DSH｜T-W4｜app/public/js/planner.js、app/public/js/projects.js、app/public/projects.css、app/public/planner.css、app/test/ui-projects.test.mjs、app/public/js/app.js（仅 projects 回调几行）｜2026-11-24 14:20
 完成｜Codex｜T-W8a｜迁移 005、收获关联/星标/复习/图片、筛选与视图计数｜专项 13/13，full PASS（仓储/服务 120/120，浏览器 91/91）｜7321 正式服务待安排重启，未推送。
 验收通过｜Claude｜T-W8a｜2026-11-24：Codex 提交 4037649，full PASS（服务 120、浏览器 91，Codex 跑）；Claude 抽查迁移 005 与复习间隔，复跑 harvest/review/v2 21/21。真实库 v4→v5 需重启 7321（会先自动备份），待用户同意。T-W8b 已解锁（排在 DSH 的 T-W4、T-W1b 之后）。派单记录：T-W6 → Codex xhigh（codex-worker 后台，-AllowDirty）。
+派单记录｜2026-11-24｜T-W6 脚本后台运行约 3 分钟（只读代码、无改动）按用户要求停止，改用 HUD 重派：会话 01a20e15-450c-7293-a891-b72009928014，消息 m-d401ea7487e4（默认 high）。
