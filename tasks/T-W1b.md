@@ -13,7 +13,7 @@ tier：ui   risk：high（误操作会让用户以为数据丢了）   执行：
 3. 共享提示：`shared=false` 时显示提示条「网页版和桌面版现在各用各的文件夹（列出两处默认路径），数据不会互通。把两边设为同一个文件夹即可实时同步。」
 4. 备份：列表（时间、大小）、「立即备份」、「打开备份文件夹」。
 5. 更换位置：桌面版「选择文件夹…」（pick-folder），网页端是路径输入框；单选「把当前数据复制过去（推荐）」/「使用那里已有的数据」；确认对话框写明：旧文件夹不会删除、需要重启、重启前先自动备份一次（先调 backup 再 relocate）。成功后显示「立即重启」（有 /api/restart 时）或「请关闭并重新运行启动脚本」。
-6. 预留 `<section id="obsidianSection"></section>`（T-W5 填充），本单只放标题「Obsidian 联动（即将推出）」。
+6. `<section id="obsidianSection"></section>`：若 T-W5 已提交，import `./obsidian-section.js` 并调用 `mountObsidianSection(那个 section)`，index.html 加 `obsidian.css` 链接；若未提交，只放标题「Obsidian 联动（即将推出）」。
 7. 所有错误码（409/400/403）显示人话，不显示原始堆栈。
 
 完成标准：临时库服务下能看到路径/用量/备份，能备份，能用输入框改到临时文件夹（copy 与 use 两种）并看到需重启提示；390px 与六套皮肤通过；`verify\run_all.cmd full` 通过。

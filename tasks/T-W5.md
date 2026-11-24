@@ -1,10 +1,10 @@
 工单 T-W5：工作台数据单向导出到 Obsidian 仓库
-tier：hard   risk：high（写用户的笔记仓库）   执行：Codex xhigh   依赖：T-W1、T-W3、T-W1b 已提交
+tier：hard   risk：high（写用户的笔记仓库）   执行：Codex xhigh   依赖：T-W1、T-W3 已提交（2026-11-24 调整：不再等 T-W1b，界面小节独立挂载）
 先读：tasks/ROUND-2026-11-24.md、tasks/T-W1.md、tasks/T-W3.md、docs/DATA_FOR_AI.md、app/lib/context-md.js
 
 用户原话：「我想数据和Obsidian仓库联动」（用户确认：单向导出到仓库，只写工作台自己生成的文件，不改原有笔记）
 
-可改文件：app/lib/obsidian.js（新）、app/server.js（路由）、app/public/js/obsidian-section.js（新，挂到 T-W1b 的 #obsidianSection）、app/public/storage.css（只加本节样式）、architecture/workbench.d.ts、app/test/obsidian.test.js（新）、app/test/ui-obsidian.test.mjs（新）、docs/DATA_FOR_AI.md、app/README.md
+可改文件：app/lib/obsidian.js（新）、app/server.js（路由）、app/public/js/obsidian-section.js（新，导出 `mountObsidianSection(host: HTMLElement): void`，T-W1b 的「数据」页在 #obsidianSection 上调用它；本单测试自建一个宿主页挂载）、app/public/obsidian.css（新，本节样式，只用令牌）、architecture/workbench.d.ts、app/test/obsidian.test.js（新）、app/test/ui-obsidian.test.mjs（新）、docs/DATA_FOR_AI.md、app/README.md
 不许动：tokens.css、db.js 命令签名
 
 接口约定：
