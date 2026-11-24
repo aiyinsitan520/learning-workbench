@@ -298,3 +298,4 @@ tier：easy  risk：low  执行：Codex low  依赖：T-H1
 Codex 队列 W1 → W3 → W8a → W5 → W6；DSH 队列 W2 → W4 → W1b → W8b → W7 → W9。
 第一批派发：T-W1（Codex xhigh，数据文件夹 + 实时同步）、T-W2（DSH，时间块上下沿拖动）。其余待前置提交后派。
 下一位：新会话说「/team 继续 学习工作台」，先 git log 看 T-W1/T-W2 是否已提交、读回执，验收后按依赖派下一批。
+派单记录｜2026-11-24｜T-W1 → Codex xhigh（codex-worker 后台运行，回执在 E:\多agent协作\runs\codex\<时间>-T-W1\last.md）；T-W2 → DSH 新会话 deepseek:session-56579db0-1825-42d1-87cf-06c5fb345a46，HUD 消息 m-c3edd28d73ce（用 get_message 查，不催）。
