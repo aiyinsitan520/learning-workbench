@@ -1,5 +1,6 @@
 import { esc } from './icons.js';
 import { clockOf } from './views.js';
+import { localToday } from './dom.js';
 
 const HOUR = 3600;
 const QUARTER = 900;
@@ -226,6 +227,35 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     return appendSlot()?.startsAt ?? null;
   }
 
+  /**
+   * 「排进今天」用：从当前时刻（看别的日期时从 06:00）起，第一个放得下 seconds 秒的空档起点。
+   * 起点按 5 分钟吸附、不早于此刻；放不下返回 null（项目卡据此提示「今天排满了」）。
+   */
+  function nextFreeStart(seconds) {
+    if (!view) return null;
+    const wanted = Math.max(QUARTER, Math.min(Math.round(Number(seconds) || DEFAULT_PLAN_SECONDS), end - start));
+    const now = Math.floor(Date.now() / 1000);
+    const earliest = view.day === localToday(view.timeZone) ? Math.max(start, Math.ceil(now / STEP) * STEP) : start;
+    const spans = view.scheduled
+      .map((block) => [block.startsAt, block.startsAt + block.plannedSeconds])
+      .filter(([from, to]) => to > start && from < end)
+      .sort((a, b) => a[0] - b[0]);
+    // 在空档 [from, to) 里找第一个吸到 5 分钟、且整段放得下的起点
+    const fitIn = (from, to) => {
+      const at = Math.max(earliest, Math.ceil(from / STEP) * STEP);
+      return at + wanted <= Math.min(to, end) ? at : null;
+    };
+    let cursor = earliest;
+    for (const [from, to] of spans) {
+      if (from > cursor) {
+        const at = fitIn(cursor, from);
+        if (at !== null) return at;
+      }
+      cursor = Math.max(cursor, to);
+    }
+    return fitIn(cursor, end);
+  }
+
   sidebar.querySelector('[data-plan-add]').onclick = () => {
     if (!view) return;
     const startsAt = appendStart();
@@ -284,6 +314,45 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     source.setPointerCapture(event.pointerId);
   });
 
+  /**
+   * 右栏长期项目（T-W4）：拖动柄带 data-drag-project="<projectId>"，子任务用 data-drag-project-task="<taskId>"。
+   * 项目卡本身不动（这是「复制」），落点建一个时间块：taskId 取项目主任务，时长取 dailyMinutes*60（无则 30 分钟）。
+   * 监听挂在 document 上：起点在右栏、落点在左栏时间轴，跨栏拖动不经过 sidebar。
+   */
+  document.addEventListener('pointerdown', (event) => {
+    const source = event.target.closest?.('[data-drag-project], [data-drag-project-task]');
+    if (!source || event.button !== 0 || !view || drag) return;
+    const project = source.dataset.dragProject
+      ? (view.projects ?? []).find((item) => item.id === source.dataset.dragProject)
+      : null;
+    if (source.dataset.dragProject && !project) return;
+    if (project && (project.completedAt || project.archivedAt)) return;
+    const taskId = source.dataset.dragProjectTask ?? project?.mainTaskId;
+    if (!taskId) return;
+    const title = project?.title ?? source.dataset.dragTitle ?? source.textContent.trim() ?? '长期项目';
+    const wanted = Math.max(QUARTER, (project?.dailyMinutes ? project.dailyMinutes * 60 : DEFAULT_PLAN_SECONDS));
+    if (!drag) suppressClick = false;
+    const card = document.createElement('div');
+    card.className = 'planner-block planner-preview';
+    card.textContent = title;
+    card.hidden = true;
+    grid.querySelector('.planner-layer').append(card);
+    const float = document.createElement('div');
+    float.className = 'planner-float';
+    float.textContent = `${title} · ${Math.round(wanted / 60)} 分钟`;
+    float.style.left = `${event.clientX + 14}px`;
+    float.style.top = `${event.clientY + 14}px`;
+    document.body.append(float);
+    drag = {
+      source, block: null, task: { id: taskId, title }, card, float, edge: '', resize: false,
+      external: true, wanted, day: view.day, pointerId: event.pointerId,
+      x: event.clientX, y: event.clientY, initialX: event.clientX, initialY: event.clientY,
+      scroll: grid.scrollTop, grab: 0, before: card.getAttribute('style'),
+      seconds: wanted, startsAt: undefined,
+    };
+    source.setPointerCapture(event.pointerId);
+  });
+
   function preview() {
     const { x, y, card, block, edge, grab } = drag;
     if (edge === 'end') {
@@ -308,21 +377,40 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     const layer = grid.querySelector('.planner-layer').getBoundingClientRect();
     const inside = x >= rect.left && x < rect.right && y >= Math.max(rect.top, layer.top)
       && y < Math.min(rect.bottom, layer.bottom);
-    const required = block ? block.plannedSeconds : QUARTER;
-    drag.startsAt = inside && required <= end - start
+    // 从右栏拖入的项目要放下整段 dailyMinutes，所以按它算所需空间，而不是待办的 15 分钟；
+    // 长度夹在 15 分钟与当天剩余之间（时间轴不足 15 分钟时哪儿都放不下）。
+    const room = end - start;
+    const required = drag.external
+      ? Math.min(Math.max(drag.wanted, QUARTER), room)
+      : block ? block.plannedSeconds : QUARTER;
+    drag.startsAt = inside && required <= room && room >= QUARTER
       ? Math.max(start, Math.min(end - required, start + snap(toSeconds(y - layer.top - grab))))
       : undefined;
+    if (drag.float) {
+      // 还没进时间轴时只显示跟着指针的小卡片；进了时间轴就换成轴上的预览块
+      drag.float.hidden = drag.startsAt !== undefined;
+      if (drag.startsAt === undefined) {
+        drag.float.style.left = `${x + 14}px`;
+        drag.float.style.top = `${y + 14}px`;
+      }
+    }
     if (!block) card.hidden = drag.startsAt === undefined;
     if (drag.startsAt === undefined) {
       if (block) resetCard(drag);
       showDate();
       return;
     }
-    if (!block) drag.seconds = Math.min(DEFAULT_PLAN_SECONDS, end - drag.startsAt);
+    if (!block) {
+      drag.seconds = drag.external
+        ? Math.max(QUARTER, Math.min(drag.wanted, end - drag.startsAt))
+        : Math.min(DEFAULT_PLAN_SECONDS, end - drag.startsAt);
+    }
     card.classList.add('planner-dragging');
     card.style.top = `${toPixels(drag.startsAt - start)}px`;
     card.style.height = `${toPixels(drag.seconds)}px`;
-    caption.textContent = timeLabel({ startsAt: drag.startsAt, plannedSeconds: drag.seconds }, view.timeZone);
+    caption.textContent = drag.external
+      ? dragLabel(drag.startsAt, drag.seconds, view.timeZone)
+      : timeLabel({ startsAt: drag.startsAt, plannedSeconds: drag.seconds }, view.timeZone);
   }
 
   function scrollWhileDragging() {
@@ -359,12 +447,23 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     preview();
     if (!drag.frame) drag.frame = requestAnimationFrame(scrollWhileDragging);
   });
+  // 跨栏拖动（右栏项目 → 左栏时间轴）：指针捕获在右栏的拖动柄上，事件不经过 sidebar，所以在 document 上接。
+  document.addEventListener('pointermove', (event) => {
+    if (!drag?.external || drag.pointerId !== event.pointerId) return;
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+    drag.moved ||= Math.hypot(drag.x - drag.initialX, drag.y - drag.initialY) >= 4;
+    if (!drag.moved) return;
+    preview();
+    if (!drag.frame) drag.frame = requestAnimationFrame(scrollWhileDragging);
+  });
   /** keep=true：松手后要保存，卡片先留在落点，等保存后的重绘接手，避免先弹回原位再跳过去。 */
   function finishDrag(keep = false) {
     if (!drag) return null;
     const stopped = drag;
     drag = null;
     if (stopped.frame) cancelAnimationFrame(stopped.frame);
+    stopped.float?.remove();
     if (keep) stopped.card.classList.remove('planner-dragging');
     else if (stopped.block) resetCard(stopped);
     else stopped.card.remove();
@@ -372,7 +471,8 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
       stopped.source.releasePointerCapture(stopped.pointerId);
     }
     showDate();
-    suppressClick = stopped.moved;
+    // 只有左栏内的拖动才需要在左栏吞掉紧随其后的 click；右栏起拖时点击落在右栏，别让左栏下一次点击被吃掉。
+    suppressClick = stopped.external ? false : stopped.moved;
     return stopped;
   }
   const stop = (event) => {
@@ -405,6 +505,9 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     });
   };
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) sidebar.addEventListener(type, stop);
+  // 右栏起拖时指针捕获在右栏的拖动柄上，pointerup 不经过 sidebar，所以同一套收尾在 document 上再挂一份（只认 external）。
+  const stopExternal = (event) => { if (drag?.external) stop(event); };
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) document.addEventListener(type, stopExternal);
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') finishDrag();
   });
@@ -434,6 +537,6 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
       [...handles].find((item) => (item.dataset.resizePlan ?? item.dataset.resizePlanStart) === block.id)?.focus({ preventScroll: true });
     }
   });
-  return { render, show, position, reveal, appendStart, appendSlot, inPlanMode: () => mode === 'plan',
+  return { render, show, position, reveal, appendStart, appendSlot, nextFreeStart, inPlanMode: () => mode === 'plan',
     setScale, hourHeight: () => hourHeight };
 }

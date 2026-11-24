@@ -43,6 +43,15 @@
 .planner-dragging { z-index:1; box-shadow:var(--shadow-2); }
 .planner-preview { width:calc(100% - 2px); padding:0 4px; justify-content:center; font-size:11px; pointer-events:none; }
 .planner-preview[hidden] { display:none; }
+/* 从右栏拖项目进时间轴时跟着指针的小卡片（还没进时间轴才显示，进去后换成轴上的预览块）。
+   position:fixed + pointer-events:none：不参与布局，也不挡住下面的落点判定。 */
+.planner-float {
+  position:fixed; z-index:20; max-width:220px; padding:5px 10px; border-radius:var(--radius-s);
+  background:var(--block-bg); border:1px solid var(--block-line); color:var(--block-ink);
+  box-shadow:var(--shadow-2); font-size:11.5px; line-height:1.3;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none;
+}
+.planner-float[hidden] { display:none; }
 /* 上沿 / 下沿各约 10px 是透明的拖动区，光标上下箭头；悬停、聚焦时在沿口画一条细抓手线（令牌色）。 */
 .planner-resize {
   position:absolute; left:0; right:0; height:10px; cursor:ns-resize; touch-action:none; background:transparent;

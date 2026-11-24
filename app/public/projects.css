@@ -12,9 +12,16 @@
   position:relative;min-width:0;padding:11px 12px;border-radius:var(--radius-m);
   background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow-1);
 }
-.proj-head{display:flex;align-items:baseline;gap:8px;min-width:0}
+.proj-head{display:flex;align-items:center;gap:6px;min-width:0}
 .proj-name{flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--ink-2);
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* T-W4：标题区的拖动柄，按住拖到左栏日计划（复制，卡片不动）。光标与待办拖动一致。 */
+.proj-grip{display:grid;place-items:center;flex:none;width:18px;height:22px;margin-left:-4px;
+  border-radius:var(--radius-xs);color:var(--faint);cursor:grab;touch-action:none;user-select:none;
+  transition:color .15s ease,background-color .15s ease}
+.proj-grip .ico{width:12px;height:16px;stroke-width:2}
+.proj-grip:hover,.proj-grip:focus-visible{color:var(--accent-ink);background:var(--surface-3)}
+.proj-grip:active{cursor:grabbing}
 .proj-days{flex:none;font:11px var(--small-text);color:var(--muted);font-variant-numeric:tabular-nums}
 .proj-days.late{color:var(--danger);font-weight:600}
 .proj-track{margin-top:7px}
@@ -26,6 +33,8 @@
 .proj-actions .primary{padding:5px 11px;font-size:12px}
 .proj-actions .light{padding:5px 10px;font-size:12px}
 .proj-more{flex:none;width:26px;height:26px;font-size:15px;line-height:1}
+/* 已完成 / 归档的项目：卡片整体淡一点，拖动柄与「排进今天」不出现（见 projects.js 的 planable） */
+.proj-card.proj-done{opacity:.72}
 
 .proj-menu{
   display:grid;gap:2px;margin-top:7px;padding:5px;border-radius:var(--radius-s);
