@@ -252,7 +252,12 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
         const p = url.searchParams;
         sendJson(res, 200, { ok: true, ...wb.readHarvests({
           q: p.get('q') ?? '', tag: p.get('tag') ?? '', limit: p.get('limit') ?? 50, offset: p.get('offset') ?? 0,
+          project: p.get('project'), task: p.get('task'), starred: p.get('starred') === '1', due: p.get('due') === '1',
         }) });
+        return;
+      }
+      case 'GET /api/harvests/random': {
+        sendJson(res, 200, wb.readRandomHarvest());
         return;
       }
       case 'GET /api/task-note': {
@@ -445,8 +450,14 @@ export function execute(wb, command) {
       return wb.updateHarvest({
         harvestId: command.harvestId, day: command.day, title: command.title, conclusion: command.conclusion,
         points: command.points, todos: command.todos, tags: command.tags, sourceUrl: command.sourceUrl,
-        projectId: command.projectId,
+        projectId: command.projectId, taskId: command.taskId, images: command.images,
       });
+    case 'setHarvestStar':
+      return wb.setHarvestStar({ id: command.id, starred: command.starred });
+    case 'setHarvestReview':
+      return wb.setHarvestReview({ id: command.id, enabled: command.enabled });
+    case 'reviewHarvest':
+      return wb.reviewHarvest({ id: command.id, result: command.result });
     case 'deleteHarvest':
       return wb.deleteHarvest({ harvestId: command.harvestId });
     case 'promoteHarvestTodo':

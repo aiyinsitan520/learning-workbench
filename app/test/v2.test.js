@@ -26,7 +26,7 @@ test('v1 旧库自动迁移到 v2：先备份，旧数据不丢，新表可用',
     raw.exec("INSERT INTO tasks (id, title) VALUES ('t1', '旧任务')");
     raw.close();
     const wb = openDatabase(file, { timeZone: TZ });
-    assert.equal(wb.db.prepare('PRAGMA user_version').get().user_version, 4);
+    assert.equal(wb.db.prepare('PRAGMA user_version').get().user_version, 5);
     assert.equal(wb.readDay(DAY).pending[0].title, '旧任务');
     assert.equal(wb.readDay(DAY).pending[0].projectId, null);
     wb.close();

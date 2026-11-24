@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dayRange, isValidDate, localDateOf, nowSeconds } from './time.js';
+import { dayRange, isValidDate, localDateOf, nowSeconds, shiftDate } from './time.js';
 import { HARVEST_LIMITS, splitTags } from '../public/js/harvest-format.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -14,7 +14,10 @@ export const SCHEMA_PATH = join(HERE, '..', '..', 'architecture', 'schema.sql');
 export const MIGRATIONS_DIR = join(HERE, '..', '..', 'architecture', 'migrations');
 
 // v1 = schema.sql；之后每一版是 migrations/00N_*.sql，文件自己写 PRAGMA user_version = N。
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
+const HARVEST_REVIEW_INTERVALS = [1, 2, 4, 7, 15, 30, 60];
+// 与附件读取接口使用相同的 ID 格式。
+const HARVEST_IMAGE_ID = /^[0-9a-f]{64}\.(png|jpg|webp|gif)$/;
 export const PROJECT_COURSE = '长期项目';
 const MAX_TEXT = 4000;
 const MAX_TASK_NOTE = 32000;
@@ -236,6 +239,9 @@ class Workbench {
       openFocus: openRow ? mapFocus(openRow) : null,
       focusSummary: { finishedSessions: Number(summary.sessions), elapsedSeconds: Number(summary.seconds) },
       projects: this.readProjects(day, timeZone),
+      harvestDue: this.#one(
+        'SELECT COUNT(*) AS n FROM harvests WHERE next_review_day <= ?', localDateOf(this.now(), this.timeZone),
+      ).n,
     };
   }
 
@@ -278,6 +284,7 @@ class Workbench {
         focusSecondsTotal: Number(focus.total),
         taskCount: Number(tasks.n),
         doneTaskCount: Number(tasks.done),
+        harvestCount: this.#one('SELECT COUNT(*) AS n FROM harvests WHERE project_id = ?', p.id).n,
         log: log ? mapProjectLog(log) : null,
         lastLog: last ? mapProjectLog(last) : null,
       };
@@ -397,7 +404,7 @@ class Workbench {
    * 收获列表，新的在前。q 在标题、结论、要点、待办、标签里找；tag 精确匹配一个标签。
    * 同时返回全部标签的计数，供筛选条使用。
    */
-  readHarvests({ q = '', tag = '', limit = 50, offset = 0 } = {}) {
+  readHarvests({ q = '', tag = '', limit = 50, offset = 0, project, task, starred = false, due = false } = {}) {
     const n = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
     const skip = Math.max(Number.parseInt(offset, 10) || 0, 0);
     const where = [];
@@ -413,6 +420,19 @@ class Workbench {
       where.push('EXISTS (SELECT 1 FROM json_each(harvests.tags) WHERE value = ?)');
       args.push(wanted);
     }
+    if (project != null) {
+      where.push('project_id = ?');
+      args.push(requireId(project, '项目 id'));
+    }
+    if (task != null) {
+      where.push('task_id = ?');
+      args.push(requireId(task, '任务 id'));
+    }
+    if (starred) where.push('starred = 1');
+    if (due) {
+      where.push('next_review_day <= ?');
+      args.push(localDateOf(this.now(), this.timeZone));
+    }
     const filter = where.length ? ' WHERE ' + where.join(' AND ') : '';
     const total = Number(this.#one(`SELECT COUNT(*) AS n FROM harvests${filter}`, ...args).n);
     const rows = this.#all(`SELECT * FROM harvests${filter} ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`,
@@ -422,6 +442,13 @@ class Workbench {
         + ' GROUP BY j.value ORDER BY count DESC, j.value',
     ).map((r) => ({ tag: r.tag, count: Number(r.count) }));
     return { harvests: rows.map((r) => this.#mapHarvest(r)), total, tags };
+  }
+
+  readRandomHarvest() {
+    const today = localDateOf(this.now(), this.timeZone);
+    const due = this.#one('SELECT * FROM harvests WHERE next_review_day <= ? ORDER BY RANDOM() LIMIT 1', today);
+    const row = due ?? this.#one('SELECT * FROM harvests ORDER BY RANDOM() LIMIT 1');
+    return row ? this.#mapHarvest(row) : null;
   }
 
   /** 某天（按卡片的 day）存的收获，旧的在前。AI 回顾与数据快照用。 */
@@ -472,9 +499,13 @@ class Workbench {
    * 改收获卡片。未传的字段不变；projectId 传 null 表示取消关联。
    * todos 里没带 taskId 的条目，若旧卡片有同文字的条目，沿用它的 taskId（避免改字后重复加入待办）。
    */
-  updateHarvest({ harvestId, day, title, conclusion, points, todos, tags, sourceUrl, projectId }) {
+  updateHarvest({ harvestId, day, title, conclusion, points, todos, tags, sourceUrl, projectId, taskId, images }) {
     requireId(harvestId, '收获 id');
     if (todos !== undefined && !Array.isArray(todos)) throw invalid('待办 必须是数组');
+    if (images !== undefined && (!Array.isArray(images) || images.some((id) =>
+      typeof id !== 'string' || HARVEST_IMAGE_ID.exec(id)?.[0] !== id))) {
+      throw invalid('图片必须是有效的附件 id 数组');
+    }
     return this.#tx(() => {
       const row = this.#one('SELECT * FROM harvests WHERE id = ?', harvestId);
       if (!row) throw missing(`收获 ${harvestId} 不存在`);
@@ -501,12 +532,58 @@ class Workbench {
         requireId(nextProject, '项目 id');
         if (!this.#one('SELECT id FROM projects WHERE id = ?', nextProject)) throw missing(`项目 ${nextProject} 不存在`);
       }
+      const nextTask = taskId === undefined ? row.task_id : taskId;
+      if (nextTask !== null) {
+        requireId(nextTask, '任务 id');
+        if (!this.#one('SELECT id FROM tasks WHERE id = ?', nextTask)) throw missing('关联任务不存在');
+      }
+      const nextImages = images === undefined ? row.images : JSON.stringify(images);
       this.#run(
         'UPDATE harvests SET day = ?, title = ?, conclusion = ?, points = ?, todos = ?, tags = ?, source_url = ?,'
-          + ' project_id = ?, updated_at = ? WHERE id = ?',
+          + ' project_id = ?, task_id = ?, images = ?, updated_at = ? WHERE id = ?',
         nextDay, card.title, card.conclusion, JSON.stringify(card.points), JSON.stringify(card.todos),
-        JSON.stringify(card.tags), card.sourceUrl, nextProject, this.now(), harvestId,
+        JSON.stringify(card.tags), card.sourceUrl, nextProject, nextTask, nextImages, this.now(), harvestId,
       );
+      return { ok: true };
+    });
+  }
+
+  setHarvestStar({ id, starred }) {
+    requireId(id, '收获 id');
+    if (typeof starred !== 'boolean') throw invalid('星标必须是布尔值');
+    return this.#tx(() => {
+      const { changes } = this.#run('UPDATE harvests SET starred = ?, updated_at = ? WHERE id = ?',
+        Number(starred), this.now(), id);
+      if (!changes) throw missing('收获不存在');
+      return { ok: true };
+    });
+  }
+
+  setHarvestReview({ id, enabled }) {
+    requireId(id, '收获 id');
+    if (typeof enabled !== 'boolean') throw invalid('复习开关必须是布尔值');
+    return this.#tx(() => {
+      const now = this.now();
+      const nextDay = enabled ? shiftDate(localDateOf(now, this.timeZone), 1) : null;
+      const { changes } = this.#run('UPDATE harvests SET next_review_day = ?, updated_at = ? WHERE id = ?',
+        nextDay, now, id);
+      if (!changes) throw missing('收获不存在');
+      return { ok: true };
+    });
+  }
+
+  reviewHarvest({ id, result }) {
+    requireId(id, '收获 id');
+    if (result !== 'remember' && result !== 'forgot') throw invalid('复习结果无效');
+    return this.#tx(() => {
+      const row = this.#one('SELECT review_count FROM harvests WHERE id = ?', id);
+      if (!row) throw missing('收获不存在');
+      const now = this.now();
+      const count = result === 'remember' ? row.review_count + 1 : 0;
+      const interval = HARVEST_REVIEW_INTERVALS[Math.min(count, HARVEST_REVIEW_INTERVALS.length - 1)];
+      const nextDay = shiftDate(localDateOf(now, this.timeZone), interval);
+      this.#run('UPDATE harvests SET review_count = ?, last_reviewed_at = ?, next_review_day = ?, updated_at = ? WHERE id = ?',
+        count, now, nextDay, now, id);
       return { ok: true };
     });
   }
@@ -559,6 +636,9 @@ class Workbench {
       id: row.id, day: row.day, title: row.title, conclusion: row.conclusion,
       points: JSON.parse(row.points), todos, tags: JSON.parse(row.tags),
       source: row.source, sourceUrl: row.source_url, projectId: row.project_id ?? null,
+      taskId: row.task_id, starred: Boolean(row.starred),
+      review: { count: row.review_count, lastAt: row.last_reviewed_at, nextDay: row.next_review_day },
+      images: JSON.parse(row.images),
       createdAt: row.created_at, updatedAt: row.updated_at,
     };
   }

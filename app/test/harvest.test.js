@@ -161,7 +161,7 @@ test('仓储：待办转任务（同事务、可重试、改字沿用、排进�
   wb.close();
 });
 
-test('v3 旧库自动迁移到 v4：先备份，旧数据不丢，收获表可用', () => {
+test('v3 旧库自动迁移到 v5：先备份，旧数据不丢，收获表可用', () => {
   const dir = mkdtempSync(join(tmpdir(), 'wb-v4-'));
   try {
     const file = join(dir, 'old.db');
@@ -174,7 +174,7 @@ test('v3 旧库自动迁移到 v4：先备份，旧数据不丢，收获表可�
     raw.exec("INSERT INTO tasks (id, title) VALUES ('t', '旧任务')");
     raw.close();
     const wb = openDatabase(file, { timeZone: TZ });
-    assert.equal(wb.db.prepare('PRAGMA user_version').get().user_version, 4);
+    assert.equal(wb.db.prepare('PRAGMA user_version').get().user_version, 5);
     wb.createHarvest({ id: 'h', title: '迁移后', points: ['可用'] });
     assert.equal(wb.readHarvests().total, 1);
     assert.equal(wb.db.prepare("SELECT title FROM tasks WHERE id = 't'").get().title, '旧任务');
@@ -202,7 +202,7 @@ async function serve(t, fetchImpl) {
     assert.equal(response.status, status, JSON.stringify(json));
     return json;
   };
-  return { api, calls, url: app.url };
+  return { api, calls, url: app.url, workbench: app.workbench };
 }
 
 test('接口：固定格式不调模型；未设模型时原文提炼报 400；有模型时提炼并只返回草稿', async (t) => {
@@ -256,4 +256,130 @@ test('接口：命令写入、列表筛选、待办转任务，备份导出含�
   const back = await other.api('harvests');
   assert.equal(back.total, 2);
   assert.equal(back.harvests.find((h) => h.id === 'h1').todos[0].taskId, 'task-1');
+});
+
+test('v4 → v5：保留卡片原有字段和 v4 自动备份', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'wb-v5-'));
+  const file = join(dir, 'old.db');
+  try {
+    const raw = new DatabaseSync(file);
+    raw.exec(readFileSync(SCHEMA_PATH, 'utf8'));
+    raw.exec(readFileSync(new URL('../../architecture/task_notes.sql', import.meta.url), 'utf8'));
+    for (const migration of ['002_projects_reviews.sql', '003_task_note_days.sql', '004_harvests.sql']) {
+      raw.exec(readFileSync(new URL('../../architecture/migrations/' + migration, import.meta.url), 'utf8'));
+    }
+    raw.exec("INSERT INTO tasks (id, title) VALUES ('t', '原任务')");
+    raw.prepare('INSERT INTO harvests VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      'h', '2026-11-24', '原卡片', '原结论', '["要点"]', '[{"text":"原待办","taskId":"t"}]',
+      '["标签"]', 'manual', 'https://example.com/', null, 10, 20,
+    );
+    const original = raw.prepare('SELECT * FROM harvests').get();
+    raw.close();
+
+    const wb = openDatabase(file, { timeZone: TZ });
+    try {
+      const current = wb.db.prepare('SELECT * FROM harvests').get();
+      for (const [key, value] of Object.entries(original)) assert.equal(current[key], value, key);
+      assert.deepEqual(wb.readHarvest('h'), {
+        id: 'h', day: '2026-11-24', title: '原卡片', conclusion: '原结论', points: ['要点'],
+        todos: [{ text: '原待办', taskId: 't', taskDone: false }], tags: ['标签'], source: 'manual',
+        sourceUrl: 'https://example.com/', projectId: null, taskId: null, starred: false,
+        review: { count: 0, lastAt: null, nextDay: null }, images: [], createdAt: 10, updatedAt: 20,
+      });
+    } finally { wb.close(); }
+    const backups = readdirSync(dir).filter(name => name.startsWith('old.db.bak-v4-'));
+    assert.equal(backups.length, 1);
+    const backup = new DatabaseSync(join(dir, backups[0]), { readOnly: true });
+    try {
+      assert.equal(backup.prepare('PRAGMA user_version').get().user_version, 4);
+      assert.deepEqual(backup.prepare('SELECT * FROM harvests').get(), original);
+    } finally { backup.close(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('复习间隔按北京时间，记住递增封顶，忘记重置，开关保留历史', (t) => {
+  let now = Date.parse('2026-12-31T16:05:00Z') / 1000;
+  const wb = memory(() => now);
+  t.after(() => wb.close());
+  const id = 'h';
+  wb.createHarvest({ id, title: '间隔' });
+  wb.setHarvestReview({ id, enabled: true });
+  assert.deepEqual(wb.readHarvest(id).review, { count: 0, lastAt: null, nextDay: '2027-01-02' });
+  assert.equal(wb.readHarvests({ due: true }).total, 0);
+  now += 86400;
+  assert.equal(wb.readHarvests({ due: true }).total, 1);
+  const days = ['2027-01-04', '2027-01-06', '2027-01-09', '2027-01-17',
+    '2027-02-01', '2027-03-03', '2027-03-03'];
+  for (const [index, nextDay] of days.entries()) {
+    wb.reviewHarvest({ id, result: 'remember' });
+    assert.deepEqual(wb.readHarvest(id).review, { count: index + 1, lastAt: now, nextDay });
+  }
+  wb.setHarvestReview({ id, enabled: false });
+  assert.deepEqual(wb.readHarvest(id).review, { count: 7, lastAt: now, nextDay: null });
+  wb.setHarvestReview({ id, enabled: true });
+  assert.deepEqual(wb.readHarvest(id).review, { count: 7, lastAt: now, nextDay: '2027-01-03' });
+  now += 60;
+  wb.reviewHarvest({ id, result: 'forgot' });
+  assert.deepEqual(wb.readHarvest(id).review, { count: 0, lastAt: now, nextDay: '2027-01-03' });
+});
+
+test('v5 API：关联、图片、星标、复习、组合筛选、随机和视图计数', async (t) => {
+  const { api, workbench } = await serve(t, async () => Response.json({}));
+  const command = (c, status) => api('command', { command: c }, status);
+  const id = 'h';
+  const image = 'a'.repeat(64) + '.png';
+  let now = Date.parse('2026-11-24T10:00:00Z') / 1000;
+  workbench.now = () => now;
+  assert.equal(await api('harvests/random'), null);
+  await command({ type: 'createProject', id: 'p', title: '项目', startDay: '2026-11-24', mainTaskId: 'main' });
+  await command({ type: 'createHarvest', id, title: '目标卡', points: ['甲', '乙'], todos: ['第一条', '第二条'] });
+  await command({ type: 'promoteHarvestTodo', harvestId: id, index: 0, taskId: 'from-todo' });
+  assert.equal((await api('harvests/random')).id, id);
+  await command({ type: 'createHarvest', id: 'other', title: '另一张' });
+  await command({
+    type: 'updateHarvest', harvestId: id, projectId: 'p', taskId: 'main', images: [image], points: ['乙', '甲'],
+    todos: ['第二条', { text: '已修改的第一条', taskId: 'from-todo' }],
+  });
+  for (const images of [null, image, [123], ['../' + image], [image + '\n']]) {
+    await command({ type: 'updateHarvest', harvestId: id, title: '不应保存', images }, 400);
+  }
+  await command({ type: 'updateHarvest', harvestId: id, taskId: 'missing' }, 404);
+  await command({ type: 'setHarvestStar', id, starred: '1' }, 400);
+  await command({ type: 'setHarvestReview', id, enabled: 1 }, 400);
+  await command({ type: 'reviewHarvest', id, result: 'other' }, 400);
+  await command({ type: 'setHarvestStar', id: 'missing', starred: true }, 404);
+  await command({ type: 'setHarvestReview', id: 'missing', enabled: true }, 404);
+  await command({ type: 'reviewHarvest', id: 'missing', result: 'remember' }, 404);
+  await command({ type: 'setHarvestStar', id, starred: true });
+  await command({ type: 'setHarvestReview', id, enabled: true });
+  assert.equal((await api('harvests?due=1')).total, 0);
+  now += 86400;
+  assert.equal((await api('harvests/random')).id, id);
+  for (const filter of ['project=p', 'task=main', 'starred=1', 'due=1']) {
+    assert.deepEqual((await api('harvests?' + filter)).harvests.map(card => card.id), [id]);
+  }
+  const { harvests, total } = await api('harvests?project=p&task=main&starred=1&due=1');
+  assert.equal(total, 1);
+  assert.equal((await api('harvests?project=missing&starred=1')).total, 0);
+  assert.equal(harvests[0].title, '目标卡');
+  assert.deepEqual(harvests[0].images, [image]);
+  assert.deepEqual(harvests[0].points, ['乙', '甲']);
+  assert.deepEqual(harvests[0].todos, [
+    { text: '第二条', taskId: null, taskDone: false },
+    { text: '已修改的第一条', taskId: 'from-todo', taskDone: false },
+  ]);
+  const { view } = await api('view?day=2026-11-24');
+  assert.equal(view.harvestDue, 1);
+  assert.equal(view.projects.find(project => project.id === 'p').harvestCount, 1);
+  await command({ type: 'reviewHarvest', id, result: 'remember' });
+  assert.equal((await api('harvests?due=1')).total, 0);
+  await command({ type: 'setHarvestStar', id, starred: false });
+  assert.equal((await api('harvests?starred=1')).total, 0);
+
+  await command({ type: 'updateHarvest', harvestId: id, taskId: 'from-todo' });
+  workbench.db.prepare('DELETE FROM tasks WHERE id = ?').run('from-todo');
+  assert.equal(workbench.readHarvest(id).taskId, null);
+  await command({ type: 'updateHarvest', harvestId: id, projectId: null, taskId: null, images: [] });
+  assert.deepEqual(workbench.readHarvest(id).images, []);
+  assert.equal((await api('harvests?project=p')).total, 0);
 });

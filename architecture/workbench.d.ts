@@ -64,6 +64,7 @@ export interface ProjectView extends Project {
   focusSecondsTotal: number;    // 截至当天的累计
   taskCount: number;            // 子任务数（不含主任务）
   doneTaskCount: number;
+  harvestCount: number;
   log: ProjectLog | null;       // 当天的进展
   lastLog: ProjectLog | null;   // 当天之前最近一条
 }
@@ -78,6 +79,7 @@ export interface WorkbenchView {
   note: DayNote | null;
   openFocus: FocusSession | null;
   focusSummary: { finishedSessions: number; elapsedSeconds: number };
+  harvestDue: number;
   projects: readonly ProjectView[]; // v2：当天在进行的项目（已开始、未归档；当天之后才完成的也算）
 }
 
@@ -116,7 +118,10 @@ export type Command =
       sourceUrl?: string; projectId?: string | null }
   | { type: "updateHarvest"; harvestId: string; day?: StudyDay; title?: string; conclusion?: string; points?: string[];
       todos?: (string | { text: string; taskId?: string | null })[]; tags?: string[]; sourceUrl?: string;
-      projectId?: string | null }
+      projectId?: string | null; taskId?: string | null; images?: string[] }
+  | { type: "setHarvestStar"; id: string; starred: boolean }
+  | { type: "setHarvestReview"; id: string; enabled: boolean }
+  | { type: "reviewHarvest"; id: string; result: "remember" | "forgot" }
   | { type: "deleteHarvest"; harvestId: string }
   | { type: "promoteHarvestTodo"; harvestId: string; index: number; taskId: string; course?: "" | "日计划" };
 export type CommandResult =
@@ -336,11 +341,16 @@ export interface Harvest {
   source: string;               // 'chatgpt' | 'ai' | 'manual' …，只作展示
   sourceUrl: string;            // '' = 没有
   projectId: string | null;
+  taskId: string | null;
+  starred: boolean;
+  review: { count: number; lastAt: number | null; nextDay: StudyDay | null };
+  images: string[];
   createdAt: number;
   updatedAt: number;
 }
 /**
- *   GET  /api/harvests?q=&tag=&limit=50&offset=0 → { harvests: Harvest[] (新的在前), total: number, tags: { tag, count }[] }
+ *   GET  /api/harvests?q=&tag=&limit=50&offset=0&project=&task=&starred=1&due=1 → { harvests: Harvest[] (新的在前), total: number, tags: { tag, count }[] }
+ *   GET  /api/harvests/random → Harvest | null（优先待复习）
  *   POST /api/ai/distill { text }               → { draft: HarvestDraft, via: "format" | "ai", provider?, model? }
  *        先按固定格式解析，成功不调模型；否则用当前供应商提炼。未设置模型 → 400「还没有设置模型…」，页面退回手填。
  *        text 上限 60000 字。只返回草稿，不写库；保存走 createHarvest。

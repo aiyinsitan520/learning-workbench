@@ -74,7 +74,7 @@ test('v2 旧库迁移到 v3：已有正文记成 1970-01-01 基线，之后只�
     raw.close();
     let now = at(DAY, 9);
     const wb = openDatabase(file, { timeZone: TZ, now: () => now });
-    assert.equal(wb.db.prepare('PRAGMA user_version').get().user_version, 4);
+    assert.equal(wb.db.prepare('PRAGMA user_version').get().user_version, 5);
     wb.saveTaskNote('t', '旧笔记第一行\n今天新写的一行', 1);
     assert.equal(wb.readNoteChanges(DAY)[0].added, '今天新写的一行', '旧内容是基线，不算当天新增');
     wb.close();
