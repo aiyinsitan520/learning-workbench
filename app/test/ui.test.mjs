@@ -590,6 +590,8 @@ test('日计划：末尾新建、拖动改期、底边改时长、拖入待办�
 
   const card = `#plannerGrid .planner-task[data-block="${original.id}"]`;
   const hourHeight = await page.evaluate('return document.querySelector(".planner-hour").getBoundingClientRect().height;');
+  // 末尾的块常贴着时间轴底边；默认密度 48px 下再往下拖一小时会进自动滚动区，先把时间轴往上滚一屏
+  await page.evaluate(`const g = document.querySelector('#plannerGrid'); g.scrollTop = Math.max(0, g.scrollHeight - g.clientHeight); return true;`);
   const [x, y] = await point(card);
   await dragTo([x, y], [x, y + hourHeight]);
   await page.waitFor(`__wbState.view.scheduled.some((b) => b.id === '${original.id}' && b.startsAt === ${tail + 3600})`);
@@ -657,6 +659,8 @@ test('日计划：松手后卡片停在落点不弹回，保存失败才复原',
   };
   const top = () => page.evaluate(`return ${card}.style.top;`);
   const original = await top();
+  // 拖一小时：像素数跟当前时间轴密度走（默认 48px/小时，旧版 32px 时就是 32px）
+  const hourHeight = await page.evaluate('return document.querySelector(".planner-hour").getBoundingClientRect().height;');
 
   // 让保存请求挂起：松手后、保存完成前，卡片必须留在落点
   await page.evaluate(`
@@ -667,7 +671,7 @@ test('日计划：松手后卡片停在落点不弹回，保存失败才复原',
       : window.__origFetch(url, init);
     return true;
   `);
-  await drag(32);
+  await drag(hourHeight);
   await page.waitFor('typeof window.__release === "function"');
   const dropped = await top();
   assert.notEqual(dropped, original, '松手后不应先弹回原位');
@@ -679,7 +683,7 @@ test('日计划：松手后卡片停在落点不弹回，保存失败才复原',
   // 保存失败：卡片回到保存前的位置
   await page.evaluate(`window.fetch = (url, init) => String(url).includes('/api/command')
     ? Promise.reject(new TypeError('模拟网络中断')) : window.__origFetch(url, init); return true;`);
-  await drag(32);
+  await drag(hourHeight);
   await page.waitFor(`${card}.style.top === ${JSON.stringify(dropped)}`);
   await page.evaluate('window.fetch = window.__origFetch; return true;');
 });
@@ -918,7 +922,7 @@ test('「改时区」扩展篡改 Intl 时，日计划仍按北京时间显示�
     assert.equal(seen.spoofed, 'UTC', '模拟扩展应生效');
     assert.equal(seen.firstHourOffset, 6 * 3600, '时间轴第一格应是北京时间 06:00');
     assert.equal(seen.label, '06:00');
-    assert.equal(seen.top, '96px', '九点的块应画在 06:00 往下 3 小时处');
+    assert.equal(seen.top, '144px', '九点的块应画在 06:00 往下 3 小时处（默认密度 48px/小时）');
     assert.equal(seen.day, seen.serverDay);
   } finally {
     await page.send('Page.removeScriptToEvaluateOnNewDocument', { identifier });

@@ -43,11 +43,34 @@
 .planner-dragging { z-index:1; box-shadow:var(--shadow-2); }
 .planner-preview { width:calc(100% - 2px); padding:0 4px; justify-content:center; font-size:11px; pointer-events:none; }
 .planner-preview[hidden] { display:none; }
-/* 调时长：块底部 6px 是透明的拖动区，光标变成上下箭头即可拖；不再画把手横线。 */
+/* 上沿 / 下沿各约 10px 是透明的拖动区，光标上下箭头；悬停、聚焦时在沿口画一条细抓手线（令牌色）。 */
 .planner-resize {
-  position:absolute; left:0; right:0; bottom:0; height:6px; cursor:ns-resize; touch-action:none; background:transparent;
+  position:absolute; left:0; right:0; height:10px; cursor:ns-resize; touch-action:none; background:transparent;
 }
+.planner-resize-start { top:0; border-radius:var(--radius-xs) var(--radius-xs) 0 0; }
+.planner-resize-end { bottom:0; border-radius:0 0 var(--radius-xs) var(--radius-xs); }
+.planner-resize::after {
+  content:""; position:absolute; left:6px; right:6px; height:2px; border-radius:2px;
+  background:var(--accent-line); opacity:0; transition:opacity .15s ease;
+}
+.planner-resize-start::after { top:1px; }
+.planner-resize-end::after { bottom:1px; }
+.planner-block:hover .planner-resize::after, .planner-resize:focus-visible::after, .planner-resize:active::after { opacity:1; }
+.planner-resize:focus-visible { opacity:1; }
+/* 块不到 28px 高时手柄各缩到 6px，中间仍留得出按住标题拖动的位置；
+   块比 12px 还矮时两个 6px 会叠在一起，就按各占 40% 高度分上下，保证上沿在上、下沿在下。 */
+.planner-block.short .planner-resize { height:6px; }
+.planner-block.short .planner-resize::after { left:4px; right:4px; }
+.planner-block.tiny .planner-resize { height:40%; }
+.planner-block.tiny .planner-resize-start { z-index:1; }
 .planner-hour button:focus-visible,.planner-task:focus-visible,.planner-resize:focus-visible { outline-offset:-2px; }
+/* 时间轴密度切换：紧凑 / 舒适 / 宽松，与日期同一行。 */
+.planner-scale { display:flex; padding:2px; gap:2px; border:1px solid var(--line); border-radius:var(--radius-xs); background:var(--toolbar-bg); }
+.planner-scale button {
+  padding:1px 5px; border-radius:var(--radius-xs); color:var(--muted); font:10.5px/1.4 var(--small-text);
+  transition:background-color .2s ease, box-shadow .2s ease, color .2s ease;
+}
+.planner-scale button[aria-pressed="true"] { background:var(--surface); box-shadow:var(--shadow-btn); color:var(--accent-ink); }
 @media(max-width:830px) {
   .planner-scroll { max-height:390px; }
   .shell,.shell main,.shell .left { min-width:0; }

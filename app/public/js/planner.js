@@ -4,19 +4,45 @@ import { clockOf } from './views.js';
 const HOUR = 3600;
 const QUARTER = 900;
 const STEP = 300;
-const HOUR_HEIGHT = 32;
 const FIRST_HOUR = 6;
 const PLAN_HOURS = 18;
 export const DEFAULT_PLAN_SECONDS = 1800;
+export const DEFAULT_HOUR_HEIGHT = 48;
+/** 时间轴密度（每小时像素）：紧凑 / 舒适 / 宽松。 */
+export const SCALES = [32, 48, 64];
+const SCALE_KEY = 'workbench.plannerScale';
 const MODE_KEY = 'workbench.sidebarMode';
-const toPixels = (seconds) => seconds * HOUR_HEIGHT / HOUR;
-const toSeconds = (pixels) => pixels * HOUR / HOUR_HEIGHT;
+const SCALE_LABELS = { 32: '紧凑', 48: '舒适', 64: '宽松' };
+
+function readScale() {
+  try {
+    const saved = Number(localStorage.getItem(SCALE_KEY));
+    if (SCALES.includes(saved)) return saved;
+  } catch { /* 读不到就用默认密度 */ }
+  return DEFAULT_HOUR_HEIGHT;
+}
 
 function timeLabel(block, timeZone) {
   return `${clockOf(block.startsAt, timeZone)}–${clockOf(block.startsAt + block.plannedSeconds, timeZone)}`;
 }
 
-function renderAxis(view, start, end) {
+function dragLabel(startsAt, seconds, timeZone) {
+  return `${clockOf(startsAt, timeZone)}–${clockOf(startsAt + seconds, timeZone)} · ${Math.round(seconds / 60)} 分钟`;
+}
+
+/** 块比这还矮时，两个手柄各缩到 6px，给中间的标题留出按住拖动的位置。 */
+const SHORT_BLOCK = 28;
+/** 块比这还矮时，6px 手柄会互相叠住，改成上沿占上 40%、下沿占下 40%。 */
+const TINY_BLOCK = 12;
+
+function renderScaleSwitch(hourHeight) {
+  const buttons = SCALES.map((scale) => `<button type="button" data-plan-scale="${scale}"
+      aria-pressed="${scale === hourHeight}" title="${SCALE_LABELS[scale]}（每小时 ${scale}px）">${SCALE_LABELS[scale]}</button>`);
+  return `<div class="planner-scale" role="group" aria-label="时间轴密度">${buttons.join('')}</div>`;
+}
+
+function renderAxis(view, start, end, hourHeight) {
+  const toPixels = (seconds) => seconds * hourHeight / HOUR;
   const hours = [];
   for (let index = 0; index < PLAN_HOURS; index++) {
     const at = start + index * HOUR;
@@ -39,19 +65,31 @@ function renderAxis(view, start, end) {
     const label = timeLabel(block, view.timeZone);
     const title = esc(block.task.title);
     const id = esc(block.id);
-    return `<div class="planner-block ${block.task.completedAt ? 'done' : ''}" style="top:${toPixels(visibleStart - start)}px;
+    const minutes = Math.round(block.plannedSeconds / 60);
+    const startClock = clockOf(block.startsAt, view.timeZone);
+    const latestStart = block.startsAt + block.plannedSeconds - Math.min(QUARTER, block.plannedSeconds);
+    const pixels = block.plannedSeconds * hourHeight / HOUR;
+    const sizeClass = pixels < TINY_BLOCK ? 'tiny' : pixels < SHORT_BLOCK ? 'short' : '';
+    return `<div class="planner-block ${block.task.completedAt ? 'done' : ''} ${sizeClass}"
+        style="top:${toPixels(visibleStart - start)}px;
         height:${toPixels(seconds)}px;left:${lane * laneWidth}%;width:calc(${laneWidth}% - 2px)">
+      <button class="planner-resize planner-resize-start" type="button" data-resize-plan-start="${id}" role="slider"
+        aria-label="调整 ${title} 的开始时间" aria-orientation="vertical"
+        aria-valuemin="0"
+        aria-valuemax="${Math.round((latestStart - start) / 60)}"
+        aria-valuenow="${Math.round((block.startsAt - start) / 60)}" aria-valuetext="${startClock}"
+        title="拖动上沿提前或推后开始时间（结束不变），或用 ↑ 提前 5 分钟、↓ 推后 5 分钟，Shift 为 15 分钟"></button>
       <button class="planner-task" type="button" data-task-note="${esc(block.taskId)}" data-block="${id}"
         title="${title} · ${label} · 按住拖动改期">${title}</button>
-      <button class="planner-resize" type="button" data-resize-plan="${id}" role="slider"
+      <button class="planner-resize planner-resize-end" type="button" data-resize-plan="${id}" role="slider"
         aria-label="调整 ${title} 的时长" aria-orientation="vertical"
         aria-valuemin="${Math.min(15, Math.round(block.plannedSeconds / 60))}"
         aria-valuemax="${Math.floor((end - block.startsAt) / 60)}"
-        aria-valuenow="${Math.round(block.plannedSeconds / 60)}" aria-valuetext="${Math.round(block.plannedSeconds / 60)} 分钟"
-        title="拖动下沿，或用 ↑ 缩短、↓ 加长"></button>
+        aria-valuenow="${minutes}" aria-valuetext="${minutes} 分钟"
+        title="拖动下沿，或用 ↑ 缩短、↓ 加长（Shift 为 15 分钟）"></button>
     </div>`;
   });
-  return `<div class="planner-axis" style="--hour-height:${HOUR_HEIGHT}px">
+  return `<div class="planner-axis" style="--hour-height:${hourHeight}px">
       ${hours.join('')}<div class="planner-layer">${blocks.join('')}</div>
     </div><time class="planner-end">00:00</time>`;
 }
@@ -62,14 +100,43 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
   const pending = document.querySelector('#pending');
   const caption = document.querySelector('#plannerDate');
   const modes = document.querySelectorAll('[data-sidebar-view]');
+  const toolbar = document.querySelector('.planner-toolbar');
   let view;
   let start;
   let end;
+  let hourHeight = readScale();
   let mode = 'plan';
   let markup = '';
   let positionDay;
   let drag;
   let suppressClick = false;
+  // 密度切换器：加进日计划标题区（index.html 的 .planner-toolbar）
+  const scaleSwitch = document.createElement('div');
+  scaleSwitch.innerHTML = renderScaleSwitch(hourHeight);
+  const scaleGroup = scaleSwitch.firstElementChild;
+  toolbar.insertBefore(scaleGroup, toolbar.lastElementChild);
+
+  const toPixels = (seconds) => seconds * hourHeight / HOUR;
+  const toSeconds = (pixels) => pixels * HOUR / hourHeight;
+
+  function setScale(next, { persist = true } = {}) {
+    if (!SCALES.includes(next) || next === hourHeight) return;
+    finishDrag();
+    // 位置全部按密度换算，重绘一次即可；滚动位置按比例带过去，看着还是同一时段
+    const previous = hourHeight;
+    hourHeight = next;
+    for (const button of scaleGroup.querySelectorAll('[data-plan-scale]')) {
+      button.setAttribute('aria-pressed', String(Number(button.dataset.planScale) === hourHeight));
+    }
+    if (persist) {
+      try { localStorage.setItem(SCALE_KEY, String(hourHeight)); } catch { /* 本次停留期间仍可切换 */ }
+    }
+    markup = '';
+    if (!view) return;
+    const scroll = grid.scrollTop;
+    render(view);
+    grid.scrollTop = Math.round(scroll * hourHeight / previous);
+  }
 
   function show(nextMode) {
     if (nextMode !== mode) finishDrag();
@@ -92,7 +159,7 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     const top = toPixels(startsAt - start);
     const bottom = toPixels(Math.min(startsAt + plannedSeconds, end) - start);
     if (top < grid.scrollTop || bottom > grid.scrollTop + grid.clientHeight) {
-      grid.scrollTop = Math.max(0, top - HOUR_HEIGHT / 2);
+      grid.scrollTop = Math.max(0, top - hourHeight / 2);
     }
   }
 
@@ -107,7 +174,7 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     const [hour, minute] = clockOf(morning, view.timeZone).split(':').map(Number);
     start = morning + (FIRST_HOUR * 60 - hour * 60 - minute) * 60;
     end = start + PLAN_HOURS * HOUR;
-    const nextMarkup = renderAxis(view, start, end);
+    const nextMarkup = renderAxis(view, start, end, hourHeight);
     if (drag && (drag.day !== view.day || markup !== nextMarkup || !drag.source.isConnected)) finishDrag();
     if (!drag?.moved) showDate();
     if (markup !== nextMarkup) {
@@ -120,6 +187,17 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
   }
 
   for (const button of modes) button.onclick = () => show(button.dataset.sidebarView);
+  for (const button of scaleGroup.querySelectorAll('[data-plan-scale]')) {
+    button.onclick = () => setScale(Number(button.dataset.planScale));
+  }
+  /** Ctrl+滚轮在时间轴上切换密度；只在档位间跳动，不拦普通滚动。 */
+  grid.addEventListener('wheel', (event) => {
+    if (!event.ctrlKey) return;
+    event.preventDefault();
+    const index = SCALES.indexOf(hourHeight) + (event.deltaY < 0 ? 1 : -1);
+    const next = SCALES[Math.max(0, Math.min(SCALES.length - 1, index))];
+    if (next !== hourHeight) setScale(next);
+  }, { passive: false });
   try {
     if (localStorage.getItem(MODE_KEY) === 'tasks') show('tasks');
   } catch { /* 新窗口显示日计划 */ }
@@ -157,7 +235,7 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
   grid.addEventListener('click', (event) => {
     const cell = event.target.closest('[data-plan-hour]');
     if (!cell) return;
-    const fraction = (event.clientY - cell.getBoundingClientRect().top) / HOUR_HEIGHT;
+    const fraction = (event.clientY - cell.getBoundingClientRect().top) / hourHeight;
     const quarter = event.detail ? Math.max(0, Math.min(3, Math.floor(fraction * 4))) : 0;
     onCreate(Number(cell.dataset.planHour) + quarter * QUARTER);
   });
@@ -170,13 +248,23 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     const visibleDuration = Math.min(max, block.plannedSeconds);
     return Math.min(max, Math.max(Math.min(minimum, visibleDuration), visibleDuration + delta));
   }
+  /**
+   * 上沿：结束时刻不动，只改开始时间。早不过时间轴起点（06:00）；
+   * 晚不过「原时长与 15 分钟取小」——原本就短于 15 分钟的块以原时长为下限。
+   */
+  function startOf(block, delta) {
+    const finishes = block.startsAt + block.plannedSeconds;
+    const earliest = start;
+    const latest = finishes - Math.min(QUARTER, block.plannedSeconds);
+    return Math.min(latest, Math.max(earliest, block.startsAt + delta));
+  }
 
   sidebar.addEventListener('pointerdown', (event) => {
     if (!drag) suppressClick = false;
-    const source = event.target.closest('[data-resize-plan], .planner-task, [data-drag-task]');
+    const source = event.target.closest('[data-resize-plan], [data-resize-plan-start], .planner-task, [data-drag-task]');
     if (!source || event.button !== 0 || !view || drag) return;
-    const resize = !!source.dataset.resizePlan;
-    const block = blockFor(source.dataset.resizePlan ?? source.dataset.block);
+    const edge = source.dataset.resizePlan ? 'end' : source.dataset.resizePlanStart ? 'start' : '';
+    const block = blockFor(source.dataset.resizePlan ?? source.dataset.resizePlanStart ?? source.dataset.block);
     const task = block?.task ?? view.pending.find((item) => item.id === source.dataset.dragTask);
     if (!task) return;
     const card = block ? source.parentElement : document.createElement('div');
@@ -187,22 +275,33 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
       grid.querySelector('.planner-layer').append(card);
     }
     drag = {
-      source, block, task, card, resize, day: view.day, pointerId: event.pointerId,
+      source, block, task, card, edge, resize: Boolean(edge), day: view.day, pointerId: event.pointerId,
       x: event.clientX, y: event.clientY, initialX: event.clientX, initialY: event.clientY,
       scroll: grid.scrollTop, grab: block ? event.clientY - card.getBoundingClientRect().top : 0,
       before: card.getAttribute('style'), seconds: block?.plannedSeconds ?? DEFAULT_PLAN_SECONDS,
+      startsAt: block?.startsAt,
     };
     source.setPointerCapture(event.pointerId);
   });
 
   function preview() {
-    const { x, y, card, block, resize, grab } = drag;
-    if (resize) {
+    const { x, y, card, block, edge, grab } = drag;
+    if (edge === 'end') {
       const distance = y - drag.initialY + grid.scrollTop - drag.scroll;
       drag.seconds = duration(block, snap(toSeconds(distance)));
       const visibleSeconds = block.startsAt + drag.seconds - Math.max(start, block.startsAt);
       card.style.height = `${toPixels(visibleSeconds)}px`;
-      caption.textContent = `${Math.round(drag.seconds / 60)} 分钟`;
+      caption.textContent = dragLabel(block.startsAt, drag.seconds, view.timeZone);
+      return;
+    }
+    if (edge === 'start') {
+      const distance = y - drag.initialY + grid.scrollTop - drag.scroll;
+      drag.startsAt = startOf(block, snap(toSeconds(distance)));
+      const seconds = block.startsAt + block.plannedSeconds - drag.startsAt;
+      drag.seconds = seconds;
+      card.style.top = `${toPixels(drag.startsAt - start)}px`;
+      card.style.height = `${toPixels(seconds)}px`;
+      caption.textContent = dragLabel(drag.startsAt, seconds, view.timeZone);
       return;
     }
     const rect = grid.getBoundingClientRect();
@@ -283,11 +382,13 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
       drag.y = event.clientY;
       preview();
     }
-    const { block, resize, task, seconds, startsAt, moved } = drag;
+    const { block, edge, task, seconds, startsAt, moved } = drag;
     let save = null;
     if (event.type === 'pointerup' && moved) {
-      if (resize) {
+      if (edge === 'end') {
         if (seconds !== block.plannedSeconds) save = () => onChange(block, block.startsAt, seconds);
+      } else if (edge === 'start') {
+        if (startsAt !== block.startsAt) save = () => onChange(block, startsAt, seconds);
       } else if (startsAt !== undefined) {
         if (!block) save = () => onDrop(task.id, startsAt, seconds);
         else if (startsAt !== block.startsAt) save = () => onChange(block, startsAt, seconds);
@@ -308,18 +409,31 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     if (event.key === 'Escape') finishDrag();
   });
   grid.addEventListener('keydown', async (event) => {
-    const handle = event.target.closest('[data-resize-plan]');
+    const handle = event.target.closest('[data-resize-plan], [data-resize-plan-start]');
     if (!handle || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
-    const block = blockFor(handle.dataset.resizePlan);
+    const edge = handle.dataset.resizePlan ? 'end' : 'start';
+    const block = blockFor(handle.dataset.resizePlan ?? handle.dataset.resizePlanStart);
     if (!block) return;
     event.preventDefault();
-    const next = duration(block, event.key === 'ArrowDown' ? STEP : -STEP);
-    if (next === block.plannedSeconds) return;
-    await onChange(block, block.startsAt, next);
+    const step = event.shiftKey ? QUARTER : STEP;
+    const direction = event.key === 'ArrowUp' ? -1 : 1;
+    // 上沿：↑ 提前（开始时间往前）、↓ 推后；下沿：↑ 缩短、↓ 加长（沿用的方向）。
+    let next;
+    let startsAt = block.startsAt;
+    if (edge === 'start') {
+      startsAt = startOf(block, direction * step);
+      next = block.startsAt + block.plannedSeconds - startsAt;
+    } else {
+      next = duration(block, direction * step);
+    }
+    if (next === block.plannedSeconds && startsAt === block.startsAt) return;
+    await onChange(block, startsAt, next);
     if (!handle.isConnected && document.activeElement === document.body) {
-      const handles = grid.querySelectorAll('[data-resize-plan]');
-      [...handles].find((item) => item.dataset.resizePlan === block.id)?.focus({ preventScroll: true });
+      const selector = edge === 'start' ? '[data-resize-plan-start]' : '[data-resize-plan]';
+      const handles = grid.querySelectorAll(selector);
+      [...handles].find((item) => (item.dataset.resizePlan ?? item.dataset.resizePlanStart) === block.id)?.focus({ preventScroll: true });
     }
   });
-  return { render, show, position, reveal, appendStart, appendSlot, inPlanMode: () => mode === 'plan' };
+  return { render, show, position, reveal, appendStart, appendSlot, inPlanMode: () => mode === 'plan',
+    setScale, hourHeight: () => hourHeight };
 }
