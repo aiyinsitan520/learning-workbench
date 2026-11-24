@@ -291,3 +291,10 @@ tier：easy  risk：low  执行：Codex low  依赖：T-H1
 完成｜Codex｜新增桌面「视图」菜单和浏览器式页面缩放，补充 Claude Code 本机摘要说明，修复 Windows 更新器读取新包版本文件的兼容性。
 验收：verify\run_all.cmd full PASS（服务 102/102、浏览器 71/71）；Windows 桌面 smoke PASS，覆盖两种数据源的菜单、快捷键映射和实际页面宽度。
 发布：从此工单的提交打 v1.2.1 标签，由 Desktop packages 工作流产出三平台包和签名更新清单。
+
+## 2026-11-24 · 九个体验问题（Claude 规划，Codex/DSH 实现）
+
+总览、用户原话、用户确认和共同规则：tasks/ROUND-2026-11-24.md；每单详情 tasks/T-W*.md。
+Codex 队列 W1 → W3 → W8a → W5 → W6；DSH 队列 W2 → W4 → W1b → W8b → W7 → W9。
+第一批派发：T-W1（Codex xhigh，数据文件夹 + 实时同步）、T-W2（DSH，时间块上下沿拖动）。其余待前置提交后派。
+下一位：新会话说「/team 继续 学习工作台」，先 git log 看 T-W1/T-W2 是否已提交、读回执，验收后按依赖派下一批。
