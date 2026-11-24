@@ -352,3 +352,11 @@ export interface Harvest {
  * 前端模块：app/public/js/harvest.js 导出 showHarvest(root, ctx: ModuleContext)（「收获」页，快捷键 6）
  *   与 openHarvestCapture(ctx, text?)（粘贴框；全局 Ctrl/⌘+Shift+V 在非输入框时调用）。样式在 harvest.css，只用令牌。
  */
+
+/** POST /api/attachments 接收原始图片字节，GET url 读取原图。 */
+export interface Attachment {
+  id: string; // 小写 SHA-256 加 .png、.jpg、.webp 或 .gif
+  url: string; // /api/attachments/<id>
+  bytes: number;
+  type: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
+}

@@ -2,6 +2,72 @@ import { api } from './api.js';
 import { icon } from './icons.js';
 
 const SAVE_DELAY = 350;
+const BODY_LIMIT = 32000;
+const IMAGE_LIMIT = 10 * 1024 * 1024;
+const UPLOADING = '![上传中…]()';
+const IMAGE_PATH = /^\/api\/attachments\/[0-9a-f]{64}\.(?:png|jpg|webp|gif)$/;
+const IMAGE_TYPE = /^image\/(?:png|jpeg|webp|gif)$/;
+
+function imageToken(alt, url) {
+  return { alt, url: IMAGE_PATH.test(url) ? url : null };
+}
+
+function appendInline(parent, line) {
+  const tokens = /(!?)\[([^\]\n]*)\]\(([^)\s]*)\)|\*\*([^*\n]+)\*\*/g;
+  let start = 0;
+  for (const match of line.matchAll(tokens)) {
+    parent.append(line.slice(start, match.index));
+    start = match.index + match[0].length;
+    const [, image, label, url, bold] = match;
+    if (image && IMAGE_PATH.test(url)) {
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = label;
+      img.loading = 'lazy';
+      parent.append(img);
+    } else if (bold !== undefined) {
+      const strong = document.createElement('strong');
+      strong.textContent = bold;
+      parent.append(strong);
+    } else if (!image && /^https?:\/\//i.test(url)) {
+      const link = document.createElement('a');
+      link.href = url;
+      link.textContent = label;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      parent.append(link);
+    } else {
+      parent.append(match[0]);
+    }
+  }
+  parent.append(line.slice(start));
+}
+
+function renderMarkdown(container, body) {
+  container.replaceChildren();
+  let list;
+  for (const line of body.split(/\r?\n/)) {
+    const item = /^(?:([-*+])|(\d+)\.)\s+(.*)$/.exec(line);
+    if (item) {
+      const tag = item[2] ? 'OL' : 'UL';
+      if (list?.tagName !== tag) {
+        list = document.createElement(tag);
+        if (item[2]) list.start = Number(item[2]);
+        container.append(list);
+      }
+      const li = document.createElement('li');
+      appendInline(li, item[3]);
+      list.append(li);
+      continue;
+    }
+    list = null;
+    if (!line.trim()) continue;
+    const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+    const block = document.createElement(heading ? 'h' + heading[1].length : 'p');
+    appendInline(block, heading ? heading[2] : line);
+    container.append(block);
+  }
+}
 const DRAFT_PREFIX = 'workbench.taskNoteDraft.';
 const STATUS = {
   loading: '正在读取',
@@ -18,6 +84,119 @@ export function bindTaskNotes(main, renameTask) {
   let current;
   let focusWhenReady;
 
+  function syncImages(entry) {
+    if (current !== entry) return;
+    const strip = main.querySelector('#taskNoteImages');
+    const preview = main.querySelector('#taskNotePreview');
+    const area = main.querySelector('#taskNoteBody');
+    main.querySelector('#insertTaskNoteImage').disabled = !entry.loaded || Boolean(entry.upload || entry.preview);
+    main.querySelector('#toggleTaskNotePreview').disabled = !entry.loaded;
+    main.querySelector('#taskNoteImageStatus').textContent = entry.imageStatus ?? '';
+    const images = [...entry.body.matchAll(/!\[([^\]\n]*)\]\(([^)\s]*)\)/g)]
+      .map(([, alt, url]) => imageToken(alt, url)).filter(image => image.url);
+    strip.replaceChildren();
+    strip.hidden = !images.length;
+    for (const { alt, url } of images) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('aria-label', '查看大图：' + (alt || '正文图片'));
+      const thumb = document.createElement('img');
+      thumb.src = url;
+      thumb.alt = alt;
+      thumb.loading = 'lazy';
+      button.append(thumb);
+      button.onclick = () => {
+        const dialog = main.querySelector('#taskNoteImageDialog');
+        const image = dialog.querySelector('img');
+        image.src = url;
+        image.alt = alt;
+        dialog.showModal();
+      };
+      strip.append(button);
+    }
+    area.hidden = entry.preview === true;
+    preview.hidden = !area.hidden;
+    const toggle = main.querySelector('#toggleTaskNotePreview');
+    toggle.textContent = area.hidden ? '编辑正文' : '预览';
+    toggle.setAttribute('aria-pressed', String(area.hidden));
+    if (!preview.hidden) renderMarkdown(preview, entry.body);
+  }
+
+  function updateBody(entry, body) {
+    entry.body = body;
+    stash(entry);
+    syncImages(entry);
+    if (entry.status === 'conflict') return;
+    entry.status = body === entry.savedBody && !entry.request ? 'saved' : 'dirty';
+    syncStatus(entry);
+    clearTimeout(entry.timer);
+    entry.timer = setTimeout(() => flush(entry), SAVE_DELAY);
+  }
+
+  async function insertImages(entry, area, files) {
+    if (!entry.loaded || area.hidden || !files.length) return;
+    if (entry.upload) {
+      entry.upload.files.push(...files);
+      return;
+    }
+    const offset = area.selectionStart;
+    const marker = UPLOADING;
+    if (entry.body.length + marker.length > BODY_LIMIT) {
+      entry.imageStatus = '正文已接近 32000 字上限，无法插入图片。';
+      syncImages(entry);
+      return;
+    }
+    const upload = { offset, marker, files };
+    entry.upload = upload;
+    entry.imageStatus = '正在上传图片…';
+    area.setRangeText(marker, offset, offset, 'end');
+    updateBody(entry, area.value);
+    const links = [];
+    let rejected = 0;
+    for (const file of files) {
+      try {
+        if (!IMAGE_TYPE.test(file.type) || file.size > IMAGE_LIMIT) throw new Error();
+        const response = await fetch('/api/attachments', {
+          method: 'POST', headers: { 'Content-Type': file.type }, body: file,
+        });
+        if (!response.ok) throw new Error();
+        const { url } = await response.json();
+        if (!IMAGE_PATH.test(url)) throw new Error();
+        const alt = file.name.replace(/[\[\]\r\n]/g, '').slice(0, 120) || '图片';
+        links.push('![' + alt + '](' + url + ')');
+      } catch {
+        rejected++;
+      }
+    }
+    entry.upload = null;
+    entry.imageStatus = rejected ? '有 ' + rejected + ' 张图片上传失败。支持 PNG、JPEG、WebP、GIF，单张最多 10 MiB。' : '';
+    if (upload.offset === null) {
+      updateBody(entry, entry.body);
+      return;
+    }
+    const from = upload.offset;
+    const to = from + marker.length;
+    const available = BODY_LIMIT - (entry.body.length - marker.length);
+    const before = entry.body.slice(0, from);
+    const after = entry.body.slice(to);
+    const suffix = after && !after.startsWith('\n') ? '\n' : '';
+    let replacement = '';
+    for (const link of links) {
+      const newline = replacement || (before && !before.endsWith('\n')) ? '\n' : '';
+      const next = replacement + newline + link;
+      if (next.length + suffix.length > available) {
+        entry.imageStatus = '正文已接近 32000 字上限，部分图片无法插入。';
+        break;
+      }
+      replacement = next;
+    }
+    if (replacement) replacement += suffix;
+    if (current === entry) {
+      main.querySelector('#taskNoteBody').setRangeText(replacement, from, to, 'preserve');
+    }
+    updateBody(entry, before + replacement + after);
+  }
+
   function syncStatus(entry) {
     if (current !== entry) return;
     main.querySelector('#taskNoteStatus').textContent = STATUS[entry.status];
@@ -26,12 +205,16 @@ export function bindTaskNotes(main, renameTask) {
 
   function stash(entry) {
     const key = DRAFT_PREFIX + entry.id;
+    const upload = entry.upload;
+    const body = upload && upload.offset !== null
+      ? entry.body.slice(0, upload.offset) + entry.body.slice(upload.offset + upload.marker.length)
+      : entry.body;
     try {
-      if (entry.body === entry.savedBody && !entry.request) {
+      if (body === entry.savedBody && !entry.request) {
         sessionStorage.removeItem(key);
       } else {
         sessionStorage.setItem(key, JSON.stringify({
-          body: entry.body,
+          body,
           revision: entry.revision,
           sending: entry.request?.body,
         }));
@@ -63,6 +246,7 @@ export function bindTaskNotes(main, renameTask) {
         const area = main.querySelector('#taskNoteBody');
         area.value = entry.body;
         area.disabled = false;
+        syncImages(entry);
         if (focusWhenReady === entry.id) {
           focusWhenReady = null;
           area.focus({ preventScroll: true });
@@ -78,7 +262,7 @@ export function bindTaskNotes(main, renameTask) {
   async function flush(entry) {
     if (!entry) return;
     clearTimeout(entry.timer);
-    if (entry.request || !entry.loaded || entry.body === entry.savedBody || entry.status === 'conflict') return;
+    if (entry.upload || entry.request || !entry.loaded || entry.body === entry.savedBody || entry.status === 'conflict') return;
     const body = entry.body;
     entry.request = { body };
     entry.status = 'saving';
@@ -198,7 +382,19 @@ export function bindTaskNotes(main, renameTask) {
             <button type="button" class="primary" id="taskEditorDone" data-keep-editor>完成任务</button>
           </div>
         </div>
+        <div class="task-note-tools">
+          <button type="button" class="light" id="insertTaskNoteImage">插入图片</button>
+          <input type="file" id="taskNoteImageFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+          <button type="button" class="light" id="toggleTaskNotePreview" aria-pressed="false">预览</button>
+          <span id="taskNoteImageStatus" role="status"></span>
+        </div>
         <textarea id="taskNoteBody" aria-label="任务正文" maxlength="32000" placeholder="写点什么…"></textarea>
+        <div id="taskNotePreview" class="task-note-preview" aria-label="正文预览" hidden></div>
+        <div id="taskNoteImages" class="task-note-images" aria-label="正文图片" hidden></div>
+        <dialog id="taskNoteImageDialog" class="task-note-image-dialog" aria-label="正文大图">
+          <form method="dialog"><button type="submit" class="light">关闭</button></form>
+          <img alt="">
+        </dialog>
         <div class="task-editor-footer">
           <span id="taskNoteStatus" role="status"></span>
           <button type="button" class="link" id="retryTaskNote" hidden>重试</button>
@@ -208,7 +404,34 @@ export function bindTaskNotes(main, renameTask) {
       const area = main.querySelector('#taskNoteBody');
       area.value = current.body;
       area.disabled = !current.loaded;
-      syncStatus(current);
+      const entry = current;
+      const input = main.querySelector('#taskNoteImageFile');
+      main.querySelector('#insertTaskNoteImage').onclick = () => input.click();
+      input.onchange = () => {
+        void insertImages(entry, area, [...input.files]);
+        input.value = '';
+      };
+      main.querySelector('#toggleTaskNotePreview').onclick = () => {
+        entry.preview = !entry.preview;
+        syncImages(entry);
+      };
+      area.onpaste = event => {
+        const files = [...event.clipboardData.files].filter(file => file.type.startsWith('image/'));
+        if (!files.length) return;
+        event.preventDefault();
+        void insertImages(entry, area, files);
+      };
+      area.ondragover = event => {
+        if (event.dataTransfer.types.includes('Files')) event.preventDefault();
+      };
+      area.ondrop = event => {
+        const files = [...event.dataTransfer.files];
+        if (!files.length) return;
+        event.preventDefault();
+        void insertImages(entry, area, files);
+      };
+      syncImages(entry);
+      syncStatus(entry);
     }
     if (!task) return;
     main.querySelector('#taskNameText').textContent = task.title;
@@ -236,13 +459,19 @@ export function bindTaskNotes(main, renameTask) {
   main.addEventListener('input', (event) => {
     if (event.target.id !== 'taskNoteBody' || !current?.loaded) return;
     const entry = current;
-    entry.body = event.target.value;
-    stash(entry);
-    if (entry.status === 'conflict') return;
-    entry.status = entry.body === entry.savedBody && !entry.request ? 'saved' : 'dirty';
-    syncStatus(entry);
-    clearTimeout(entry.timer);
-    entry.timer = setTimeout(() => flush(entry), SAVE_DELAY);
+    const body = event.target.value;
+    if (entry.upload?.offset != null) {
+      const { offset, marker } = entry.upload;
+      // 修改发生在占位符前后时跟随它；改写了占位符就保留用户输入。
+      if (body.startsWith(entry.body.slice(0, offset + marker.length))) {
+        entry.upload.offset = offset;
+      } else if (body.endsWith(entry.body.slice(offset))) {
+        entry.upload.offset = offset + body.length - entry.body.length;
+      } else {
+        entry.upload.offset = null;
+      }
+    }
+    updateBody(entry, body);
   });
   main.addEventListener('click', (event) => {
     if (event.target.id !== 'retryTaskNote' || !current) return;
@@ -268,8 +497,8 @@ export function bindTaskNotes(main, renameTask) {
       return flush(current);
     },
     hasUnsavedWork() {
-      return [...drafts.values()].some((entry) => !entry.recoverable
-        && (entry.request || entry.body !== entry.savedBody));
+      return [...drafts.values()].some((entry) => entry.upload || (!entry.recoverable
+        && (entry.request || entry.body !== entry.savedBody)));
     },
   };
 }

@@ -18,6 +18,7 @@ import { UPDATE_CONFIG } from './lib/update-config.js';
 import { readFileSync } from 'node:fs';
 import { createStorage, prepareStorage, resolveStorage } from './lib/storage.js';
 import { createLive } from './lib/live.js';
+import { readAttachment, uploadAttachment } from './lib/attachments.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(HERE, 'public');
@@ -75,6 +76,29 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
       if (['POST', 'PUT', 'DELETE'].includes(req.method) && req.headers.origin !== undefined
         && req.headers.origin !== `http://${host}`) {
         sendJson(res, 403, { code: 'forbidden' });
+        return;
+      }
+      const rawPath = (req.url ?? '/').split('?', 1)[0];
+      if (req.method === 'POST' && rawPath === '/api/attachments') {
+        const { status, body } = await uploadAttachment(req, location.dataDir);
+        if (!req.complete) req.resume();
+        sendJson(res, status, body);
+        return;
+      }
+      if (req.method === 'GET' && rawPath.startsWith('/api/attachments/')) {
+        const image = await readAttachment(location.dataDir, rawPath.slice('/api/attachments/'.length));
+        if (!image.bytes) {
+          sendJson(res, image.status, image.body);
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Type': image.type,
+          'Content-Length': image.bytes.length,
+          'X-Content-Type-Options': 'nosniff',
+          'Cache-Control': 'private, max-age=31536000, immutable',
+          'Content-Security-Policy': 'sandbox',
+        });
+        res.end(image.bytes);
         return;
       }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
