@@ -80,6 +80,19 @@ const blocksOf = (taskId) => page.evaluate(`
     .map((b) => ({ id: b.id, startsAt: b.startsAt, plannedSeconds: b.plannedSeconds, title: b.task.title }))
     .sort((a, b) => a.startsAt - b.startsAt);
 `);
+/**
+ * 「排进今天」从当前时刻起找空档，所以用例会随跑测试的钟点变化（半夜跑就没空档了）。
+ * 把页面里的 Date.now 固定到当天 08:00（时间轴 06:00 往后 2 小时），用例就与真实钟点无关。
+ */
+const freezeNow = (seconds) => page.evaluate(`
+  window.__realDateNow ??= Date.now;
+  Date.now = () => ${seconds} * 1000;
+  return true;
+`);
+const releaseNow = () => page.evaluate(`
+  if (window.__realDateNow) { Date.now = window.__realDateNow; delete window.__realDateNow; }
+  return true;
+`);
 /** 新建一个带「每天投入」的项目并刷新页面，返回它的主任务 id。 */
 async function seedProject(id, title, dailyMinutes) {
   assert.equal(await command({
@@ -367,6 +380,9 @@ test('T-W4 拖入：没设每日投入的项目默认 30 分钟；5 分钟吸附
 test('T-W4 排进今天：按钮可用，排进第一个空档且不与已有块重叠', async () => {
   // 15 分钟的小目标：任何时刻都还有空档，用例不受跑测试的钟点影响
   const mainTaskId = await seedProject('w4-now', '背雅思词汇', 15);
+  // 把页面里的「现在」钉在当天 08:00（时间轴 06:00 起第 2 小时），半夜跑用例也还有空档
+  const fakeNow = await axisStart() + 2 * HOUR;
+  await freezeNow(fakeNow);
   // 先记下已有的块（前面拖入用例故意留了重叠的块），下面只查新块有没有压到它们
   const before = await page.evaluate(`
     return __wbState.view.scheduled.map((b) => [b.startsAt, b.startsAt + b.plannedSeconds]);
@@ -378,9 +394,8 @@ test('T-W4 排进今天：按钮可用，排进第一个空档且不与已有块
   assert.equal(blocks.length, 1, '「排进今天」应排出一个块');
   assert.equal(blocks[0].plannedSeconds, 900, '按每日投入 15 分钟');
   assert.equal(blocks[0].startsAt % 300, 0, '起点对齐 5 分钟');
-  // 起点不早于此刻（今天从当前时刻起找空档）
-  const now = Math.floor(Date.now() / 1000);
-  assert.ok(blocks[0].startsAt >= now - 300, `起点不应在过去：${blocks[0].startsAt - now}s`);
+  // 起点不早于「现在」（钉在 08:00）
+  assert.ok(blocks[0].startsAt >= fakeNow, `起点不应早于此刻：${blocks[0].startsAt - fakeNow}s`);
   assert.match(await page.text('#toast'), /已排进今天/, '有成功提示');
   // 再排一次：落在后面的空档，不压在前一个上
   await page.click('#projects [data-project-card="w4-now"] [data-project-plan-now]');
@@ -391,6 +406,7 @@ test('T-W4 排进今天：按钮可用，排进第一个空档且不与已有块
   // 两个新块都不能压到点击之前就存在的块
   const hit = two.some((b) => before.some(([from, to]) => b.startsAt < to && from < b.startsAt + b.plannedSeconds));
   assert.equal(hit, false, `「排进今天」不应和已有块重叠：${JSON.stringify({ before, two })}`);
+  await releaseNow();
 });
 
 test('T-W4 排进今天：今天排满时提示「今天排满了」', async () => {
@@ -429,6 +445,8 @@ test('T-W4 已完成 / 归档的项目不可拖，也没有「排进今天」', 
 
 test('T-W4 390px：项目卡与「排进今天」可用、不横向溢出', async () => {
   await seedProject('w4-narrow', '练口语 15 分钟', 15);
+  // 同前面的「排进今天」用例：把「现在」钉在 08:00，半夜跑也有空档
+  await freezeNow(await axisStart() + 2 * HOUR);
   await page.setViewport(390, 900);
   await new Promise((r) => setTimeout(r, 350));
   const seen = await page.evaluate(`
@@ -453,6 +471,7 @@ test('T-W4 390px：项目卡与「排进今天」可用、不横向溢出', asyn
   await page.waitFor(`__wbState.view.scheduled.filter((b) => b.taskId === 'w4-narrow-main').length === ${before + 1}`);
   await page.setViewport(1440, 900);
   await new Promise((r) => setTimeout(r, 300));
+  await releaseNow();
 });
 
 
