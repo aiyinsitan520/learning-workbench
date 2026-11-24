@@ -310,3 +310,4 @@ Codex 队列 W1 → W3 → W8a → W5 → W6；DSH 队列 W2 → W4 → W1b → 
 验收通过｜Claude｜T-W8a｜2026-11-24：Codex 提交 4037649，full PASS（服务 120、浏览器 91，Codex 跑）；Claude 抽查迁移 005 与复习间隔，复跑 harvest/review/v2 21/21。真实库 v4→v5 需重启 7321（会先自动备份），待用户同意。T-W8b 已解锁（排在 DSH 的 T-W4、T-W1b 之后）。派单记录：T-W6 → Codex xhigh（codex-worker 后台，-AllowDirty）。
 派单记录｜2026-11-24｜T-W6 脚本后台运行约 3 分钟（只读代码、无改动）按用户要求停止，改用 HUD 重派：会话 01a20e15-450c-7293-a891-b72009928014，消息 m-d401ea7487e4（默认 high）。
 完成｜Codex｜T-W6｜网页一键更新、重启接口、共享提醒与更新进度｜verify\run_all.cmd full PASS，仓储/服务 123/123，浏览器 92/92｜7321 正式服务待安排重启，未推送。
+验收通过｜Claude｜T-W6｜2026-11-24：Codex 提交 9793ad5，full PASS（服务 123、浏览器 92，Codex 跑）；Claude 抽查 git 调用（execFile 参数数组、--ff-only、无 reset/clean/checkout、测试只用临时仓库）并复跑 update 18/18。真实 GitHub 发布与桌面安装未实测。失误记录：Claude 的 edab865 误含 DSH 已暂存的 T-W4 前半改动，不回退，已通知 DSH；规则补「提交限定路径」。另：修复浏览器测试泄漏临时目录（1c8ffe6），清理 %TEMP% 204 个残留目录约 3GB。
