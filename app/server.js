@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs';
 import { createStorage, prepareStorage, resolveStorage } from './lib/storage.js';
 import { createLive } from './lib/live.js';
 import { readAttachment, uploadAttachment } from './lib/attachments.js';
+import { createSourceUpdate, prepareSourceRestart } from './lib/source-update.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(HERE, 'public');
@@ -39,19 +40,15 @@ const MIME = {
 
 const BODY_LIMIT = 512 * 1024;
 const STORAGE_POSTS = new Set(['/api/storage/backup', '/api/storage/reveal', '/api/storage/pick-folder',
-  '/api/storage/relocate', '/api/restart']);
+  '/api/storage/relocate', '/api/restart', '/api/update']);
 // 顺序即导入顺序：被引用的表在前。AI 密钥不在库里（app/data/ai-providers.json），不会被导出。
 const BACKUP_TABLES = ['projects', 'tasks', 'schedule_blocks', 'focus_sessions', 'day_notes', 'note_blocks',
   'task_notes', 'task_note_days', 'project_logs', 'daily_reviews', 'harvests'];
 
 export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root = HERE, aiConfigPath, fetchImpl,
-  islandLauncher = defaultIslandLauncher(root), updater, storageOptions = {} } = {}) {
+  islandLauncher = defaultIslandLauncher(root), updater, storageOptions = {}, sourceLifecycle = false } = {}) {
   // 桌面灵动岛（app/island/island.ps1）：测试传 islandLauncher: null 或假启动器，不会真的弹窗
   const island = createIslandController(islandLauncher);
-  // 自动更新（app/lib/updater.js）：桌面版由 desktop/main.mjs 注入能安装的 updater；
-  // 源码运行只能手动检查，不下载、不安装（更新请 git pull），也不定时联网。
-  updater ??= createUpdater({ version: APP_VERSION, config: UPDATE_CONFIG, edition: 'source',
-    install: { mode: null, reason: '源码运行的工作台请用 git pull 更新；自动下载和安装只在桌面版里可用。' } });
   const { pickFolder, restart, openFolder, installDir, ...locationOptions } = storageOptions;
   const location = resolveStorage({ ...locationOptions, webDir: join(root, 'data'), dbPath });
   prepareStorage(location);
@@ -64,6 +61,40 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
   const ai = { configPath: aiConfigPath ?? (location.dataDir ? join(location.dataDir, 'ai-providers.json') : null), fetch: fetchImpl ?? fetch };
   const publicDir = join(root, 'public');
   const projectDir = join(root, '..');
+  let restartPending = false;
+  async function restartSource() {
+    if (restartPending) throw new UpdateError('busy', '工作台正在重启。');
+    restartPending = true;
+    try {
+      return await prepareSourceRestart({ root: projectDir, port: server.address().port, stop() {
+        server.close(() => process.exit(0));
+        setTimeout(() => process.exit(0), 3000).unref();
+      } });
+    } catch (error) {
+      restartPending = false;
+      throw error;
+    }
+  }
+  const sourceUpdate = sourceLifecycle && location.dataDir ? createSourceUpdate({
+    root: projectDir, repo: UPDATE_CONFIG.repo, dataDir: location.dataDir,
+    backup: storage.backup, restart: restartSource, fetch: fetchImpl ?? fetch,
+  }) : null;
+  updater ??= createUpdater({ version: APP_VERSION, config: UPDATE_CONFIG, edition: 'source',
+    dataDir: location.dataDir, sourceUpdate,
+    install: { mode: null, reason: sourceUpdate ? '' : '请用启动脚本打开工作台，或通过 git pull 手动更新。' } });
+  if (sourceLifecycle || locationOptions.edition === 'desktop') updater.setPreferenceDirectory(location.dataDir);
+  const updateClients = new Set();
+  updater.onUpdate((version) => {
+    const event = `event: update\ndata: ${JSON.stringify({ version })}\n\n`;
+    for (const client of updateClients) {
+      if (!client.writableEnded && !client.destroyed && !client.write(event)) client.destroy();
+    }
+  });
+  const serviceRestart = restart ? async () => ({ restarting: true, afterResponse: restart })
+    : sourceLifecycle ? async () => {
+      if (updater.status().status === 'installing') throw new UpdateError('busy', '正在安装更新，请稍候。');
+      return restartSource();
+    } : null;
 
   const server = createServer(async (req, res) => {
     try {
@@ -103,7 +134,8 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
       }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (url.pathname.startsWith('/api/')) {
-        await handleApi(workbench, req, res, url, publicDir, ai, island, updater, { storage, live, pickFolder, restart });
+        await handleApi(workbench, req, res, url, publicDir, ai, island, updater,
+          { storage, live, pickFolder, restart: serviceRestart, updateClients });
         return;
       }
       await serveStatic(req, res, url.pathname, publicDir, projectDir);
@@ -150,7 +182,7 @@ async function publicBuild(dir) {
   return buildCache.value;
 }
 
-async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { storage, live, pickFolder, restart }) {
+async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { storage, live, pickFolder, restart, updateClients }) {
   const route = `${req.method} ${url.pathname}`;
   try {
     if (req.method === 'POST' && STORAGE_POSTS.has(url.pathname)
@@ -183,12 +215,22 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
       case 'POST /api/storage/relocate':
         sendJson(res, 200, storage.relocate(body?.dataDir, body?.mode));
         return;
-      case 'POST /api/restart':
-        sendJson(res, 200, restart ? { restartRequired: true } : { restartRequired: true, how: 'script' });
-        if (restart) setTimeout(restart, 150);
+      case 'POST /api/restart': {
+        if (!restart) {
+          sendJson(res, 200, { restartRequired: true, how: 'script' });
+          return;
+        }
+        const result = await restart();
+        sendJson(res, 200, { restarting: true });
+        setTimeout(result.afterResponse, 150);
         return;
+      }
       case 'GET /api/events':
         live.subscribe(res);
+        if (!res.writableEnded) {
+          updateClients.add(res);
+          res.once('close', () => updateClients.delete(res));
+        }
         return;
       case 'GET /api/review': {
         // 每日维护看板：某天（默认昨天）的摘要 + 已存的 AI 回顾（stale 表示记录在回顾之后又改过）
@@ -344,6 +386,7 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
         return;
       case 'GET /api/update':
         // 自动更新状态：当前版本、检查结果、下载进度、本机能否安装
+        await updater.refreshPreference();
         sendJson(res, 200, { ok: true, update: updater.status() });
         return;
       case 'POST /api/update': {
@@ -353,8 +396,9 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
         try {
           if (action === 'check') await updater.check();
           else if (action === 'download') updater.download();
-          else if (action === 'install') result = await updater.install();
+          else if (action === 'install') result = await updater.install(body.version);
           else if (action === 'settings') await updater.setAutoCheck(body.autoCheck);
+          else if (action === 'later' || action === 'skip') await updater.setReminder(action, body.version);
           else throw new WorkbenchError('invalid', `未知更新操作：${action}`);
         } catch (err) {
           if (err instanceof UpdateError) throw new WorkbenchError('conflict', err.message);
@@ -367,12 +411,16 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
       case 'GET /api/health':
         // build：前端文件的最新修改时间。长期开着的窗口据此发现代码已更新并自动重载。
         sendJson(res, 200, { ok: true, timeZone: wb.timeZone, now: nowSeconds(), build: await publicBuild(publicDir),
-          dataRev: live.revision() });
+          dataRev: live.revision(), version: updater.status().current });
         return;
       default:
         sendJson(res, 404, { ok: false, reason: 'invalid', message: `未知接口 ${route}` });
     }
   } catch (err) {
+    if (err instanceof UpdateError) {
+      sendJson(res, 409, { ok: false, reason: 'conflict', message: err.message });
+      return;
+    }
     if (err instanceof WorkbenchError) {
       const status = err.reason === 'missing' ? 404 : err.reason === 'conflict' ? 409 : err.reason === 'invalid' ? 400 : 500;
       sendJson(res, status, { ok: false, reason: err.reason, message: err.message });
@@ -566,7 +614,17 @@ if (isEntry) {
   const port = Number(process.env.PORT ?? 7321);
   // 工作台固定按北京时间分日（用户 2026-11-21 决定），不跟随本机时区；需要时用 WORKBENCH_TZ 覆盖。
   const timeZone = process.env.WORKBENCH_TZ || 'Asia/Shanghai';
-  const { url, location } = await start({ port, timeZone });
+  const { url, location, updater } = await start({ port, timeZone, sourceLifecycle: true });
+  await updater.loadSettings();
+  if (location.dataDir) {
+    try {
+      const outcome = JSON.parse(await readFile(join(location.dataDir, 'source-update-result.json'), 'utf8'));
+      if (outcome.ok ? outcome.to === APP_VERSION : [outcome.from, outcome.to].includes(APP_VERSION)) {
+        updater.markUpdated(outcome);
+      }
+    } catch { /* 首次运行可能没有更新结果 */ }
+  }
+  updater.startSchedule();
   console.log(`学习工作台已启动：${url}`);
   console.log(`数据库：${location.dbPath}`);
   console.log(`时区：${timeZone}`);

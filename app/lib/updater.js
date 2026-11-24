@@ -2,10 +2,10 @@
 //   检查：读 GitHub Release 里的 latest.json 和 latest.json.sig，先验 Ed25519 签名，再核对格式、仓库、版本和本平台的包；
 //   下载：只从本仓库对应版本的 Release 下载，限制大小，边下边算 SHA-256，全部对上才算「可以安装」；
 //   安装：必须用户确认；由注入的 installer 完成（桌面版：备份资料 → 解压 → 退出 → 替换 → 重启）。
-// 只检查，不自动下载、不强制安装；源码运行（启动学习工作台.ps1）只能检查，更新请 git pull。
+// 检查只提示。源码运行确认后交给 sourceUpdate 备份并快进。
 // 网络请求只取公开的发布文件，不带任何本机数据。
 
-import { createHash, createPublicKey, verify } from 'node:crypto';
+import { createHash, createPublicKey, randomUUID, verify } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { once } from 'node:events';
@@ -111,6 +111,7 @@ export function createUpdater({
   version, config, dataDir = null, install = { mode: null, reason: '' }, installer = null,
   platform = platformKey(), fetch: fetchImpl = fetch, edition = 'source', autoCheckDefault = true,
   retryDelays = RETRY_DELAYS_MS, now = () => Date.now(),
+  sourceUpdate = null,
 }) {
   const settingsPath = dataDir ? join(dataDir, 'update-settings.json') : null;
   const downloadDir = dataDir ? join(dataDir, 'updates') : null;
@@ -133,6 +134,20 @@ export function createUpdater({
   let readyFile = null;
   let task = null;
   let timers = [];
+  let schedule = null;
+  let preferenceDir = dataDir;
+  let preferenceWrites = Promise.resolve();
+  let onUpdate = () => {};
+
+  async function refreshPreference() {
+    state.reminder = null;
+    if (!preferenceDir || !verified) return;
+    try {
+      const saved = JSON.parse(await readFile(join(preferenceDir, 'update-prefs.json'), 'utf8'));
+      if (saved.version === verified.version && (saved.action === 'skip' ||
+        (saved.action === 'later' && saved.until > now()))) state.reminder = saved;
+    } catch { /* 没有有效的提醒设置 */ }
+  }
 
   const setError = (err, status = 'error') => {
     state.status = status;
@@ -190,15 +205,22 @@ export function createUpdater({
     state.error = null;
     if (compareVersions(latest.version, version) <= 0) {
       verified = null;
+      state.reminder = null;
       state.latest = { ...latest, package: latest.package && { name: latest.package.name, size: latest.package.size } };
       state.status = 'latest';
       return;
     }
     verified = latest;
     state.latest = { ...latest, package: latest.package && { name: latest.package.name, size: latest.package.size } };
-    readyFile = await existingReady(latest);
+    if (sourceUpdate) {
+      const reasons = await sourceUpdate.preflight(latest.version);
+      state.install = { mode: reasons.length ? null : 'source-git', reasons, reason: reasons.join(' ') };
+    }
+    readyFile = sourceUpdate ? null : await existingReady(latest);
     state.status = readyFile ? 'ready' : 'available';
     state.progress = readyFile ? { received: latest.package.size, total: latest.package.size } : null;
+    await refreshPreference();
+    onUpdate(latest.version);
   }
 
   async function downloadOnce(latest, file) {
@@ -288,6 +310,39 @@ export function createUpdater({
   }
 
   const api = {
+    setPreferenceDirectory(dir) { preferenceDir = dir; },
+    onUpdate(listener) { onUpdate = listener; },
+    refreshPreference,
+
+    async setReminder(action, version) {
+      if (!['later', 'skip'].includes(action) || !preferenceDir || !verified || version !== verified.version) {
+        throw new UpdateError('no-update', '版本已变化，请重新检查更新。');
+      }
+      const dir = preferenceDir;
+      const path = join(dir, 'update-prefs.json');
+      const temporary = path + '.' + randomUUID();
+      const saved = { version, action };
+      if (action === 'later') {
+        const shanghaiOffset = 8 * 60 * 60 * 1000;
+        const day = 24 * 60 * 60 * 1000;
+        saved.until = (Math.floor((now() + shanghaiOffset) / day) + 1) * day - shanghaiOffset;
+      }
+      const write = preferenceWrites.then(async () => {
+        await mkdir(dir, { recursive: true });
+        try {
+          await writeFile(temporary, JSON.stringify(saved));
+          await rename(temporary, path);
+        } finally {
+          await rm(temporary, { force: true });
+        }
+        await refreshPreference();
+      });
+      preferenceWrites = write.catch(() => {});
+      await write;
+      onUpdate(version);
+      return api.status();
+    },
+
     status() {
       return structuredClone(state);
     },
@@ -301,6 +356,7 @@ export function createUpdater({
 
     /** 后台下载；立即返回，进度看 status().progress。 */
     download() {
+      if (sourceUpdate) throw new UpdateError('cannot-download', '源码版请使用立即更新。');
       if (state.status === 'ready' || state.status === 'downloading') return api.status();
       if (!verified) throw new UpdateError('no-update', '没有可以下载的新版本，请先检查更新。');
       if (!verified.package) throw new UpdateError('no-package', '新版没有适合这台电脑的安装包，请到发布页查看。');
@@ -312,7 +368,25 @@ export function createUpdater({
     },
 
     /** 用户确认后安装。返回 installer 的结果（例如 { restarting: true }）。 */
-    async install() {
+    async install(expectedVersion) {
+      if (sourceUpdate) {
+        if (task || state.status === 'installing') throw new UpdateError('busy', '正在处理更新，请稍候。');
+        if (!verified) throw new UpdateError('no-update', '请先检查更新。');
+        if (expectedVersion !== undefined && expectedVersion !== verified.version) {
+          throw new UpdateError('version-changed', '可用版本已变化，请重新确认。');
+        }
+        state.status = 'installing';
+        state.error = null;
+        try {
+          return await sourceUpdate.install({ version: verified.version, from: version,
+            onStep: (step) => { state.step = step; } });
+        } catch (err) {
+          setError(err, 'available');
+          throw err;
+        } finally {
+          state.step = null;
+        }
+      }
       if (!state.install.mode || !installer) {
         throw new UpdateError('cannot-install', state.install.reason || '这里不能自动安装。');
       }
@@ -352,7 +426,7 @@ export function createUpdater({
         await mkdir(dataDir, { recursive: true });
         await writeFile(settingsPath, JSON.stringify({ autoCheck: state.autoCheck }));
       }
-      if (timers.length) { api.stopSchedule(); api.startSchedule(); }
+      if (schedule) api.startSchedule(schedule);
       return api.status();
     },
 
@@ -364,6 +438,7 @@ export function createUpdater({
     /** 启动 1 分钟后检查一次，此后每 6 小时一次；只检查，不下载。 */
     startSchedule({ firstDelay = FIRST_CHECK_DELAY_MS, interval = CHECK_INTERVAL_MS } = {}) {
       api.stopSchedule();
+      schedule = { firstDelay, interval };
       if (!state.autoCheck) return;
       const tick = () => { if (['idle', 'latest', 'error', 'available'].includes(state.status)) void api.check(); };
       const first = setTimeout(tick, firstDelay);
@@ -376,6 +451,7 @@ export function createUpdater({
     stopSchedule() {
       for (const t of timers) { clearTimeout(t); clearInterval(t); }
       timers = [];
+      schedule = null;
     },
 
     /** 测试用：等当前的检查或下载结束。 */

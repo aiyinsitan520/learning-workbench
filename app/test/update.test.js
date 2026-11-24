@@ -3,13 +3,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFile, execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
+import { setTimeout as delay } from 'node:timers/promises';
 import { compareVersions, createUpdater, parseManifest, verifyManifest, MANIFEST_FORMAT } from '../lib/updater.js';
 import { UPDATE_CONFIG } from '../lib/update-config.js';
 import { start, APP_VERSION } from '../server.js';
 import { writeManifest } from '../../desktop/release-manifest.mjs';
+import { createSourceUpdate } from '../lib/source-update.js';
 
 const REPO = 'aiyinsitan520/learning-workbench';
 const PLATFORM = 'win32-x64';
@@ -309,4 +314,180 @@ test('发版脚本：标签须等于 version.json，私钥须和公钥成对；�
     } finally { done(); }
     assert.equal(existsSync(join(dir, 'latest.json')), true);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('源码更新：临时 Git 仓库覆盖前置检查、快进与备份顺序', async (t) => {
+  const temp = mkdtempSync(join(tmpdir(), 'wb-source-git-'));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const root = join(temp, 'source');
+  const remote = join(temp, 'remote');
+  mkdirSync(join(root, 'app'), { recursive: true });
+  const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, GIT_ALLOW_PROTOCOL: 'file' },
+  }).trim();
+  const calls = [];
+  const exec = promisify(execFile);
+  const sourceOptions = { root, repo: REPO, dataDir: temp,
+    backup: () => { calls.push('backup'); return { name: 'snapshot.db' }; },
+    restart: async () => { calls.push('restart'); return { restarting: true }; },
+    execGit(file, args, options) {
+      const actual = [...args];
+      if (actual.includes('fetch')) {
+        calls.push('fetch');
+        actual[actual.indexOf('origin')] = remote;
+      }
+      return exec(file, actual, { ...options, env: { ...options.env, GIT_ALLOW_PROTOCOL: 'file' } });
+    },
+  };
+  const source = createSourceUpdate(sourceOptions);
+  assert.match((await source.preflight('1.2.0'))[0], /仓库根目录/);
+  git(root, 'init', '-b', 'main');
+  git(root, 'config', 'user.email', 'fixture@example.test');
+  git(root, 'config', 'user.name', 'Fixture');
+  const versionFile = join(root, 'app', 'version.json');
+  const commitVersion = (version) => {
+    writeFileSync(versionFile, JSON.stringify({ version }));
+    git(root, 'add', '--', 'app/version.json');
+    git(root, 'commit', '-m', version);
+    return git(root, 'rev-parse', 'HEAD');
+  };
+  const original = commitVersion('1.1.0');
+  assert.deepEqual(await source.preflight('1.2.0'), ['origin 未指向配置的发布仓库。', '本地找不到标签 v1.2.0。']);
+  const target = commitVersion('1.2.0');
+  git(root, 'tag', 'v1.2.0');
+  git(root, 'tag', 'v1.3.0');
+  git(temp, 'clone', '--bare', root, remote);
+  git(root, 'remote', 'add', 'origin', `https://github.com/${REPO}.git`);
+  git(root, 'switch', '-c', 'side', original);
+  assert.match((await source.preflight('1.2.0'))[0], /main 分支/);
+  commitVersion('1.1.1');
+  git(root, 'branch', '-f', 'main', 'side');
+  git(root, 'switch', 'main');
+  await assert.rejects(source.install({ from: '1.1.1', version: '1.2.0' }), /无法快进/);
+  git(root, 'switch', 'side');
+  git(root, 'branch', '-f', 'main', original);
+  git(root, 'switch', 'main');
+  writeFileSync(join(root, 'draft.txt'), 'untouched');
+  await assert.rejects(source.install({ from: '1.1.0', version: '1.2.0' }), /未提交/);
+  assert.deepEqual(calls, []);
+  rmSync(join(root, 'draft.txt'));
+  assert.deepEqual(await source.preflight('1.2.0'), []);
+  await assert.rejects(source.install({ from: '1.1.0', version: '1.3.0', onStep() {} }), /version.json 与发布版本不一致/);
+  assert.equal(git(root, 'rev-parse', 'HEAD'), original);
+  assert.deepEqual(calls.splice(0), ['backup', 'fetch']);
+  git(root, 'tag', '-d', 'v1.2.0');
+  const requests = [];
+  const remoteSource = createSourceUpdate({
+    ...sourceOptions,
+    fetch: async (url) => {
+      requests.push(url);
+      if (url.endsWith('commits/refs%2Ftags%2Fv1.2.0')) return Response.json({ sha: target });
+      assert.ok(url.endsWith(`compare/${original}...${target}?per_page=1`));
+      return Response.json({ status: 'ahead', merge_base_commit: { sha: original } });
+    },
+  });
+  const gh = fakeGithub({ manifest: manifestFor('1.2.0', { packages: {} }) });
+  const { updater, done } = makeUpdater(gh, { edition: 'source', sourceUpdate: remoteSource });
+  t.after(done);
+  const status = await updater.check();
+  assert.equal(status.install.mode, 'source-git');
+  await assert.rejects(updater.install('1.3.0'), /可用版本已变化/);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(calls, [], '前置检查不备份、不 fetch');
+  assert.deepEqual(await updater.install(), { restarting: true });
+  assert.deepEqual(calls, ['backup', 'fetch', 'restart']);
+  assert.equal(requests.length, 4, '安装时再次核对远端');
+  assert.equal(git(root, 'rev-parse', 'HEAD'), target);
+  assert.deepEqual(JSON.parse(readFileSync(join(temp, 'source-update-result.json'), 'utf8')),
+    { from: '1.1.0', to: '1.2.0', ok: true, backup: 'snapshot.db' });
+});
+
+test('共享提醒：北京时间次日恢复，跳过只影响指定版本', async (t) => {
+  let time = Date.parse('2026-11-24T15:59:59Z');
+  const first = makeUpdater(fakeGithub({ manifest: manifestFor('1.2.0') }), { now: () => time });
+  const second = makeUpdater(fakeGithub({ manifest: manifestFor('1.2.0') }), { now: () => time });
+  const third = makeUpdater(fakeGithub({ manifest: manifestFor('1.3.0') }), { now: () => time });
+  for (const fixture of [first, second, third]) {
+    t.after(fixture.done);
+    fixture.updater.setPreferenceDirectory(first.dataDir);
+    await fixture.updater.check();
+  }
+  await first.updater.setReminder('later', '1.2.0');
+  await second.updater.refreshPreference();
+  assert.equal(second.updater.status().reminder.action, 'later');
+  time += 1000;
+  await second.updater.refreshPreference();
+  assert.equal(second.updater.status().reminder, null);
+  await second.updater.setReminder('skip', '1.2.0');
+  await first.updater.refreshPreference();
+  assert.equal(first.updater.status().reminder.action, 'skip');
+  await third.updater.refreshPreference();
+  assert.equal(third.updater.status().reminder, null);
+  await assert.rejects(third.updater.setReminder('skip', '1.2.0'), /版本已变化/);
+});
+
+test('源码 /api/restart 在临时端口先响应，再由脱离进程的助手拉起服务', { timeout: 20_000 }, async () => {
+  const temp = mkdtempSync(join(tmpdir(), 'wb-restart-'));
+  const root = join(temp, 'app');
+  mkdirSync(join(root, 'tools'), { recursive: true });
+  copyFileSync(new URL('../tools/restart-source.mjs', import.meta.url), join(root, 'tools', 'restart-source.mjs'));
+  writeFileSync(join(root, 'server.js'), `
+    const { createServer } = require('node:http');
+    const server = createServer((req, res) => {
+      if (req.url === '/stop-fixture') {
+        res.end('done', () => process.exit(0));
+        return;
+      }
+      res.end(JSON.stringify({ pid: process.pid }));
+    });
+    server.listen(Number(process.env.PORT), '127.0.0.1');
+    setTimeout(() => process.exit(0), 15_000).unref();
+  `);
+  const entry = join(temp, 'old-service.mjs');
+  writeFileSync(entry, `
+    import { start } from ${JSON.stringify(new URL('../server.js', import.meta.url).href)};
+    const service = await start({ root: ${JSON.stringify(root)}, dbPath: ${JSON.stringify(join(temp, 'fixture.db'))},
+      sourceLifecycle: true, islandLauncher: null });
+    process.send(service.url);
+  `);
+  const child = spawn(process.execPath, [entry], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'], windowsHide: true });
+  const exited = once(child, 'exit');
+  let url;
+  try {
+    [url] = await Promise.race([
+      once(child, 'message'),
+      exited.then(([code]) => { throw new Error(`旧服务提前退出：${code}`); }),
+    ]);
+    const response = await fetch(url + 'api/restart', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    });
+    assert.deepEqual(await response.json(), { restarting: true });
+    assert.deepEqual(await exited, [0, null]);
+
+    let newService;
+    const deadline = Date.now() + 8_000;
+    while (!newService && Date.now() < deadline) {
+      try {
+        newService = await (await fetch(url + 'api/health', { signal: AbortSignal.timeout(500) })).json();
+      } catch {
+        await delay(100);
+      }
+    }
+    assert.ok(newService?.pid, '新服务必须在原来的临时端口响应');
+    assert.notEqual(newService.pid, child.pid);
+  } finally {
+    if (child.exitCode === null) {
+      child.kill();
+      await exited.catch(() => {});
+    }
+    if (url) {
+      try {
+        const response = await fetch(url + 'stop-fixture', { signal: AbortSignal.timeout(1000) });
+        await response.text();
+      } catch { /* 新服务可能尚未启动 */ }
+    }
+    await delay(750);
+    rmSync(temp, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  }
 });

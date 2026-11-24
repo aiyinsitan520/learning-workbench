@@ -506,6 +506,12 @@ dialog:has(.update-panel){max-width:520px}
 .update-notes{padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-m);max-height:180px;overflow:auto}
 .update-notes h3{margin:0 0 6px;font-size:13px;color:var(--ink)}
 .update-notes div{white-space:pre-wrap;font-size:12.5px;line-height:1.7;color:var(--ink-2)}
+.update-notes p,.update-notes h4{margin:0 0 5px}
+.update-notes code,.update-overlay code{overflow-wrap:anywhere}
+.update-reasons{padding-inline-start:30px}
+.update-overlay{width:min(420px,calc(100% - 32px));padding:24px}
+.update-overlay h2{margin:0 0 12px;font:700 18px var(--heading)}
+.update-overlay p{line-height:1.6}
 .update-confirm{display:grid;gap:10px;padding:12px;border-radius:var(--radius-m);border:1px solid var(--accent-line);background:var(--accent-soft)}
 .update-confirm p{margin:0;font-size:12.5px;line-height:1.7;color:var(--accent-ink)}
 .update-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}

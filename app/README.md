@@ -26,7 +26,11 @@ node app\server.js    # 启动，默认 http://127.0.0.1:7321/
 
 位置配置 `location.json` 由两端共用。Windows 在 `%APPDATA%\learning-workbench`，macOS 在 `~/Library/Application Support/learning-workbench`，其他系统在 `~/.config/learning-workbench`。`WORKBENCH_DB` 优先，用于测试和开发。目录内有 `workbench.db`、`attachments/`、`backups/` 和 `关于这个文件夹.txt`。运行时请勿手动移动库或更改其 SQLite 附属文件。
 
-使用 `POST /api/storage/relocate` 选择绝对路径。`copy` 把当前数据库与附件复制到新位置，`use` 选择已有的工作台数据库。两种方式均保留原文件夹。复制只包含数据库和附件，模型接入配置、旧日志和旧备份仍位于原文件夹。迁移成功后，桌面调用 `POST /api/restart`，网页先运行停止脚本，再用快捷方式启动。两端重启后读取共享位置，日常修改经 `/api/events` 自动同步。桌面「服务器数据库」继续经 SSH 隧道访问，其数据位置仅供查看。
+使用 `POST /api/storage/relocate` 选择绝对路径。`copy` 把当前数据库与附件复制到新位置，`use` 选择已有的工作台数据库。两种方式均保留原文件夹。复制只包含数据库和附件，模型接入配置、旧日志和旧备份仍位于原文件夹。迁移成功后，两端均可用 `POST /api/restart` 重启并读取共享位置，日常修改经 `/api/events` 自动同步。桌面「服务器数据库」继续经 SSH 隧道访问，其数据位置仅供查看。
+
+### 网页端软件更新
+
+在左下角点版本号。更新要求官方仓库的 `main` 分支、干净的工作区，以及能从当前提交快进到的发布标签。本地缺少标签时会只读查询 GitHub，确认安装后才备份并获取标签。更新后网页等待新版本的健康检查。若一分钟内未恢复，按界面指引运行「启动学习工作台.ps1」。资料库快照在当前数据文件夹的 `backups/`，更新结果在 `source-update-result.json`。
 
 `POST /api/storage/backup` 生成 SQLite 快照到当前目录的 `backups/`，保留最近 20 份工作台命名的备份。这个备份包含任务和正文等数据库内容，文件附件位于独立的 `attachments/`。
 
