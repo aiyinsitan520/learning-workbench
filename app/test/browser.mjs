@@ -207,10 +207,14 @@ export async function launch({ url, width = 1440, height = 900, profileDir, time
     },
     async close() {
       try { ws.close(); } catch { /* ignore */ }
+      // 等 Chrome 真正退出再删配置目录：固定等 400ms 时子进程常还占着文件，删除失败被吞掉，
+      // 每次运行漏下约 14MB 的 wb-chrome-* 目录（2026-11-24 发现累计 3.5GB）。
+      const exited = proc.exitCode !== null ? Promise.resolve()
+        : new Promise((r) => proc.once('exit', r));
       proc.kill();
       if (!profileDir) {
-        await new Promise((r) => setTimeout(r, 400));
-        try { rmSync(dir, { recursive: true, force: true }); } catch { /* Windows 偶发占用 */ }
+        await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
+        try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }); } catch { /* 仍被占用时放弃，不影响测试结果 */ }
       }
     },
   };
