@@ -20,7 +20,19 @@ node app\server.js    # 启动，默认 http://127.0.0.1:7321/
 要求 Node.js 22 或更新版本（用到内置的 `node:sqlite`）。**没有任何第三方依赖**，
 不需要 `npm install`。启动脚本会检查版本，过低时直接给出提示而不是抛一堆栈。
 
-## 备份与迁移
+## 数据位置、同步与备份
+
+桌面版「数据」菜单可打开当前文件夹和立即备份。两端都可通过 `GET /api/storage` 查看实际路径、大小和备份清单。默认网页使用 `app/data`，桌面「本机数据库」使用原有 Electron `userData`。
+
+位置配置 `location.json` 由两端共用。Windows 在 `%APPDATA%\learning-workbench`，macOS 在 `~/Library/Application Support/learning-workbench`，其他系统在 `~/.config/learning-workbench`。`WORKBENCH_DB` 优先，用于测试和开发。目录内有 `workbench.db`、`attachments/`、`backups/` 和 `关于这个文件夹.txt`。运行时请勿手动移动库或更改其 SQLite 附属文件。
+
+使用 `POST /api/storage/relocate` 选择绝对路径。`copy` 把当前数据库与附件复制到新位置，`use` 选择已有的工作台数据库。两种方式均保留原文件夹。复制只包含数据库和附件，模型接入配置、旧日志和旧备份仍位于原文件夹。迁移成功后，桌面调用 `POST /api/restart`，网页先运行停止脚本，再用快捷方式启动。两端重启后读取共享位置，日常修改经 `/api/events` 自动同步。桌面「服务器数据库」继续经 SSH 隧道访问，其数据位置仅供查看。
+
+`POST /api/storage/backup` 生成 SQLite 快照到当前目录的 `backups/`，保留最近 20 份工作台命名的备份。这个备份包含任务和正文等数据库内容，文件附件位于独立的 `attachments/`。
+
+数据设置页接入（T-W1b）。桌面「数据位置…」在当前窗口派发 `workbench:open`，`event.detail === 'storage'`。数据接口用 `fetch` 读取规定的 JSON 形状，以 HTTP 状态判断成功。POST 发送 `Content-Type: application/json`，无参数时可用 `{}`。`pick-folder` 在网页返回 501，桌面服务器库通过 `remote: true` 识别。切换位置前调用已有 `moduleCtx.flushNotes()` 并确认正在编辑的正文已保存，成功后重启两端。
+
+## JSON 导出与导入
 
 左栏底部「我的工作台」右边的下载图标，或直接访问 `http://127.0.0.1:7321/api/export`，
 会把整库导出成一份 JSON（任务、排期、专注、手记、块）。
@@ -56,6 +68,8 @@ app/
   server.js          本地 HTTP 服务：JSON API + 静态托管，只监听回环地址
   seed.js            示例数据
   lib/db.js          仓储层：把 architecture/schema.sql 落成可用的命令与视图
+  lib/storage.js     共用数据位置、SQLite 快照和目录迁移
+  lib/live.js        进程内提交通知与 SQLite 外部变更的 SSE 广播
   lib/time.js        本地日期 ↔ UTC 秒（含夏令时）
   lib/digest.js      每日摘要、AI 回顾素材与快照，共用收获卡片映射
   lib/context-md.js  将 AI 数据快照渲染成 Markdown
@@ -72,6 +86,7 @@ app/
     planner.css      左栏日计划时间轴
     board.css        每日维护看板（js/board.js；review.js 只剩导出画布与本地摘要）
     js/app.js        外壳：状态、读取、命令、路由、事件代理
+    js/live.js       SSE 订阅、健康接口轮询与正文刷新接线
     js/dom.js        $、提示条、弹窗、本地偏好（localStorage 容错）
     js/nav.js        顶栏分组工具条与滑动选中底板
     js/focus.js      灵动岛、首页专注卡、贾维喵浮层、倒计时

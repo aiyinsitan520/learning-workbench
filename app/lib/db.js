@@ -112,13 +112,21 @@ class Workbench {
     this.db.close();
   }
 
+  dataVersion() {
+    return this.#one('PRAGMA data_version').data_version;
+  }
+
   /** 在 BEGIN IMMEDIATE 里跑 fn，异常一律回滚。 */
   #tx(fn) {
+    const onCommit = this.onCommit;
+    const changes = onCommit && this.#one('SELECT total_changes() AS n').n;
     this.db.exec('BEGIN IMMEDIATE');
+    let result;
+    let changed;
     try {
-      const result = fn();
+      result = fn();
+      changed = onCommit && this.#one('SELECT total_changes() AS n').n !== changes;
       this.db.exec('COMMIT');
-      return result;
     } catch (err) {
       try {
         this.db.exec('ROLLBACK');
@@ -132,6 +140,9 @@ class Workbench {
       if (/CHECK constraint failed/i.test(message)) throw invalid('数据不满足约束');
       throw new WorkbenchError('storage', message);
     }
+    // 通知故障不应将已提交的命令报为失败。
+    if (changed) { try { onCommit(); } catch { /* 广播由健康检查与重连补上 */ } }
+    return result;
   }
 
   #one(sql, ...params) {

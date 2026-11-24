@@ -4,9 +4,9 @@
 | --- | --- |
 | 导出文件 | 在项目目录右键 `导出给AI.ps1`，选择「使用 PowerShell 运行」。默认生成最近 30 天的 JSON、Markdown 和本说明，保存在 `app/data/ai-export/` |
 | 本机接口 | `GET http://127.0.0.1:7321/api/context?days=30&format=md`。`format=json` 返回结构化数据。可用 `end=YYYY-MM-DD` 指定最后一天，`days` 上限为 120 |
-| SQLite 数据库 | `app/data/workbench.db`。服务未运行时，导出工具用只读连接生成临时副本并在副本上迁移。外部分析优先使用导出文件 |
+| SQLite 数据库 | 当前路径见 `GET /api/storage` 的 `dbPath`。服务未运行时，导出工具用只读连接生成临时副本并在副本上迁移。外部分析优先使用导出文件 |
 
-命令行用法为 `node app/tools/export-ai.mjs --days 30`。可加 `--out <目录>` 自选输出目录，或用 `--db <库路径>` 明确指定离线数据源。相同截止日的导出会覆盖该目录中的同名快照。
+命令行用法为 `node app/tools/export-ai.mjs --days 30`。可加 `--out <目录>` 自选输出目录。切换数据文件夹后，离线导出应加 `--db <库路径>` 指定实际数据库。相同截止日的导出会覆盖该目录中的同名快照。
 
 ## 在 Claude Code 中读取桌面版数据
 

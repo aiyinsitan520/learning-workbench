@@ -299,3 +299,5 @@ Codex 队列 W1 → W3 → W8a → W5 → W6；DSH 队列 W2 → W4 → W1b → 
 第一批派发：T-W1（Codex xhigh，数据文件夹 + 实时同步）、T-W2（DSH，时间块上下沿拖动）。其余待前置提交后派。
 下一位：新会话说「/team 继续 学习工作台」，先 git log 看 T-W1/T-W2 是否已提交、读回执，验收后按依赖派下一批。
 派单记录｜2026-11-24｜T-W1 → Codex xhigh（codex-worker 后台运行，回执在 E:\多agent协作\runs\codex\<时间>-T-W1\last.md）；T-W2 → DSH 新会话 deepseek:session-56579db0-1825-42d1-87cf-06c5fb345a46，HUD 消息 m-c3edd28d73ce（用 get_message 查，不催）。
+验收｜Claude｜T-W1｜2026-11-24：后端新测试 10/10、快速验收 PASS（Codex 跑）；沙箱外浏览器逐文件：ui-ai 1、board 7、pip 3、projects 9、update 3、harvest 10、yesterday 1 全过；ui.test.mjs「关掉服务再打开」超时——SSE 长连接让 server.close 不回调（full 卡死根因），退回 Codex 第 1 次（会话 01a20ca1-01b3-76d3-9a79-47796ac0209e，-Resume）。ui-planner 4 项、ui.test 日计划 2 项失败属 T-W2 进行中。Codex T-W1 用量：xhigh 38.7 分钟，输入 1012 万（缓存 994 万）、输出 5.9 万。待定：看板/收获页的实时刷新并入 T-W8b。
+验收通过｜Claude｜T-W1｜2026-11-24：退回 1 次修复 SSE 关停后，在只含 T-W1 改动的临时工作树里 verify\run_all.cmd full PASS（仓储/服务 113/113、浏览器 71/71）。桌面冒烟需打包，未跑。修复轮 Codex 约 6 分钟、输入约 295 万（多为缓存）、输出约 0.6 万。

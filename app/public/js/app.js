@@ -17,6 +17,7 @@ import { bindPipTimer } from './pip.js';
 import { focusSecondsFor } from './plan-now.js';
 import { bindUpdates } from './update.js';
 import { showHarvest, openHarvestCapture } from './harvest.js';
+import { startLive, openNoteHasDraft, refreshOpenNote, restoreLiveView } from './live.js';
 import {
   PAGES, LEGACY_PAGES, activityPage, calendarPage, focusPage, mmss, renderDone,
   renderPending, renderProgress, renderRail, taskTitle, todoTasks, weekdayOf, PLAN_COURSE,
@@ -70,12 +71,13 @@ const errorText = (err) => (err instanceof ApiError ? err.message : String(err))
 
 let refreshSeq = 0;
 
-async function refresh() {
+async function refresh(canApply) {
   const seq = ++refreshSeq;
   // 重绘会替换 innerHTML 并把滚动归零；用滚动事件里记下的值还原。
   if (state.pendingScroll == null) state.pendingScroll = state.scrolls[state.page] ?? 0;
   try {
     const payload = await api.view(state.day, state.selectedTaskId);
+    if (canApply && !canApply()) return false;
     if (seq !== refreshSeq) return;
     learnZone(payload.view);
     Object.assign(state, {
@@ -101,9 +103,11 @@ async function refresh() {
   }
 }
 
-async function refreshMonth() {
+async function refreshMonth(canApply) {
   try {
-    state.monthDays = (await api.month(state.month)).days;
+    const { days } = await api.month(state.month);
+    if (canApply && !canApply()) return false;
+    state.monthDays = days;
     draw();
   } catch (err) {
     notify(errorText(err), 'bad');
@@ -111,9 +115,9 @@ async function refreshMonth() {
 }
 
 /** 写操作后的统一刷新：当天视图，必要时连同月历。 */
-async function reload() {
-  await refresh();
-  if (MONTH_PAGES.has(state.page)) await refreshMonth();
+async function reload(canApply) {
+  if (await refresh(canApply) === false) return false;
+  if (MONTH_PAGES.has(state.page)) return refreshMonth(canApply);
 }
 
 // ---------------------------------------------------------------- 绘制
@@ -247,6 +251,7 @@ function checkDayRollover() {
 // 每 30 秒问一次服务的 build，变了就在「没有对话框、没有拖动、手记已保存」时整页重载。
 let pageBuild = null;
 let buildCheckedAt = 0;
+const refreshBlocked = () => $('#dialog')?.open || document.querySelector('.planner-dragging') || state.busy;
 
 async function checkBuild(force = false) {
   const now = Date.now();
@@ -257,11 +262,24 @@ async function checkBuild(force = false) {
   if (!build) return;
   if (pageBuild === null) { pageBuild = build; return; }
   if (build === pageBuild) return;
-  const busy = $('#dialog')?.open || document.querySelector('.planner-dragging') || state.busy;
-  if (busy) { buildCheckedAt = 0; return; } // 忙完下一次 tick 再试
+  if (refreshBlocked()) { buildCheckedAt = 0; return; } // 忙完下一次 tick 再试
   try { await taskNotes.saveNow(); } catch { /* 保存失败也不丢：beforeunload 会拦 */ }
   if (taskNotes.hasUnsavedWork()) return;
   location.reload();
+}
+
+let liveTimer;
+const liveBlocked = () => refreshBlocked() || taskNotes.hasUnsavedWork() || openNoteHasDraft();
+const noteReloadBlocked = () => liveBlocked() || $('#taskNameForm:not([hidden])') || $('#newTitle')?.value.trim();
+function queueLiveRefresh() {
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(async () => {
+    if (liveBlocked()) { queueLiveRefresh(); return; }
+    if (await reload(() => !liveBlocked()) === false || liveBlocked()) { queueLiveRefresh(); return; }
+    try {
+      if (await refreshOpenNote(api, state, noteReloadBlocked) === 'defer') queueLiveRefresh();
+    } catch { /* 连接恢复时由下一次变化或重连补上 */ }
+  }, 300);
 }
 
 function tick() {
@@ -615,5 +633,7 @@ hydrateIcons();
 if (prefs.get(FOLD_KEY) === '1') setFold(true);
 setPlainFont(prefs.get(FONT_KEY) === 'plain');
 bindSkins();
+restoreLiveView(state);
+startLive({ onChange: queueLiveRefresh });
 setInterval(() => { tick(); focusChrome.tickCat(); }, 500);
 void refresh();

@@ -128,6 +128,28 @@ export interface Workbench {
   execute(command: Command): Promise<CommandResult>;
 }
 
+// ------------------------------------------------------------- 数据位置与实时同步
+/** GET /api/storage；桌面连接服务器库时 remote=true，存储操作只读。 */
+export interface StorageInfo {
+  dataDir: string;
+  dbPath: string;
+  source: 'env' | 'config' | 'default';
+  configPath: string;
+  edition: 'source' | 'desktop';
+  remote: boolean;
+  dbBytes: number;
+  attachmentsBytes: number;
+  attachmentCount: number;
+  backups: { name: string; bytes: number; createdAt: number }[]; // Unix 秒
+  defaults: { web: string; desktop: string | null };
+  shared: boolean;
+}
+
+/** GET /api/events 的 SSE 事件名和 JSON 数据；GET /api/health.dataRev 使用同一进程内计数。 */
+export type LiveEvent =
+  | { event: 'hello'; data: { rev: number } }
+  | { event: 'change'; data: { rev: number; origin: 'self' | 'external' } };
+
 // ------------------------------------------------------------- v2: 每日维护（app/lib/digest.js）
 /**
  * GET /api/review?day=YYYY-MM-DD（默认昨天）→ { ok, digest, factsHash, review, notes, harvests, today }

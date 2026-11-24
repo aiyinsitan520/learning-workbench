@@ -1,16 +1,22 @@
-import { app, BrowserWindow, dialog, Menu, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, session, shell } from 'electron';
 import { readFile, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { request } from 'node:http';
+import { connect, createServer as createRelay } from 'node:net';
+import { dirname, join } from 'node:path';
+import { Readable } from 'node:stream';
 import { start, APP_VERSION } from './app/server.js';
 import { createUpdater } from './app/lib/updater.js';
 import { UPDATE_CONFIG } from './app/lib/update-config.js';
 import { detectInstallMode, installUpdate, readUpdateOutcome } from './update-install.mjs';
 
 const smoke = process.argv.includes('--smoke-test');
+if (smoke) delete process.env.WORKBENCH_DB;
 const sourceLabels = { local: '本机数据库', server: '服务器数据库' };
 const zoomFactors = [0.25, 0.33, 0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
 const windows = new Map();
 let sharedUrl = 'http://127.0.0.1:17322/';
+let sharedServicePort = 7321;
+let sharedProtocolInstalled = false;
 let activeSource;
 let preferencesPath;
 let service;
@@ -113,6 +119,16 @@ function setDesktopMenu() {
         },
       })),
     },
+    {
+      label: '数据',
+      submenu: [
+        { label: '打开数据文件夹', enabled: activeSource === 'local', click: () => storageMenu('reveal', { target: 'data' }) },
+        { label: '立即备份', enabled: activeSource === 'local', click: () => storageMenu('backup') },
+        { label: '数据位置…', click: () => windows.get(activeSource)?.webContents.executeJavaScript(
+          "window.dispatchEvent(new CustomEvent('workbench:open', { detail: 'storage' }))",
+        ).catch(error => dialog.showErrorBox('无法打开数据设置', error.message)) },
+      ],
+    },
     { role: 'editMenu' },
     {
       label: '视图',
@@ -130,10 +146,69 @@ function setDesktopMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(menu));
 }
 
+async function storageMenu(action, body = {}) {
+  try {
+    const response = await fetch(service.url + 'api/storage/' + action, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
+    if (action === 'backup') await dialog.showMessageBox(windows.get('local'), { message: `已保存备份 ${result.name}` });
+  } catch (error) {
+    dialog.showErrorBox('数据操作失败', error.message);
+  }
+}
+
+// 保持服务器窗口原有的 SSH 隧道地址和浏览器存储。隧道只转发 TCP，
+// 所以 Electron 在请求离开前校验本机 Origin，再按远端实际端口发送 Host 和 Origin。
+async function fetchShared(req) {
+  const { origin, pathname, search } = new URL(req.url);
+  const json = (status, body) => Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
+  const sourceOrigin = req.headers.get('origin');
+  if (sourceOrigin !== null && sourceOrigin !== origin) return json(403, { code: 'forbidden' });
+  const info = req.method === 'GET' && pathname === '/api/storage';
+  if (!info && (pathname === '/api/storage' || pathname.startsWith('/api/storage/') || pathname === '/api/restart')) {
+    return json(403, { code: 'remote-read-only' });
+  }
+
+  const host = '127.0.0.1:' + sharedServicePort;
+  const headers = { ...Object.fromEntries(req.headers), host };
+  if (sourceOrigin !== null) headers.origin = 'http://' + host;
+  try {
+    const incoming = await new Promise((resolve, reject) => {
+      const upstream = request(sharedUrl, { method: req.method, path: pathname + search, headers, signal: req.signal }, resolve);
+      upstream.once('error', reject);
+      if (req.body) Readable.fromWeb(req.body).on('error', error => upstream.destroy(error)).pipe(upstream);
+      else upstream.end();
+    });
+    const status = incoming.statusCode;
+    const body = req.method === 'HEAD' || [204, 205, 304].includes(status) ? null : Readable.toWeb(incoming);
+    if (!body) incoming.resume();
+    const response = new Response(body, { status, headers: incoming.headers });
+    if (!info) return response;
+    if (status === 404) return json(501, { code: 'not-supported', remote: true });
+    if (!response.ok) return json(502, { code: 'remote-unavailable', remote: true });
+    const storage = await response.json();
+    return json(200, { ...storage, edition: 'desktop', remote: true, shared: false,
+      defaults: { ...storage.defaults, desktop: service.location.defaults.desktop } });
+  } catch {
+    return json(502, { code: 'remote-unavailable', remote: true });
+  }
+}
+
 async function requireSharedService() {
   try {
-    const response = await fetch(sharedUrl + 'api/health', { redirect: 'error', signal: AbortSignal.timeout(3500) });
-    if (response.ok && (await response.json()).ok === true) return;
+    const response = await fetchShared(new Request(sharedUrl + 'api/health', { signal: AbortSignal.timeout(3500) }));
+    if (response.ok && (await response.json()).ok === true) {
+      if (!sharedProtocolInstalled) {
+        const browserSession = session.defaultSession;
+        const origin = new URL(sharedUrl).origin;
+        browserSession.protocol.handle('http', req => new URL(req.url).origin === origin
+          ? fetchShared(req) : browserSession.fetch(req, { bypassCustomProtocolHandlers: true }));
+        sharedProtocolInstalled = true;
+      }
+      return sharedUrl;
+    }
   } catch { /* 下方提示连接失败 */ }
   throw new Error('服务器数据库暂时连不上。请检查网络和共享连接，然后重试。');
 }
@@ -177,12 +252,11 @@ async function selectSource(source, { remember = true } = {}) {
   if (switching || activeSource === source) return;
   switching = true;
   try {
-    if (source === 'server') await requireSharedService();
+    const url = source === 'local' ? service.url : await requireSharedService();
     if (quitting) return;
     const previous = windows.get(activeSource);
     let next = windows.get(source);
     if (!next) {
-      const url = source === 'local' ? service.url : sharedUrl;
       next = createWindow(source, url, previous?.getNormalBounds());
       try {
         await next.loadURL(url);
@@ -211,7 +285,22 @@ async function open() {
   const userData = app.getPath('userData');
   preferencesPath = join(userData, 'desktop-data-source.json');
   const updater = await createDesktopUpdater(userData);
-  service = await start({ port: smoke ? 0 : 17321, dbPath: join(userData, 'workbench.db'), updater });
+  service = await start({ port: smoke ? 0 : 17321, updater, storageOptions: {
+    edition: 'desktop', desktopDir: userData, installDir: app.isPackaged ? dirname(process.execPath) : app.getAppPath(),
+    ...(smoke ? { configRoot: join(userData, 'storage-config') } : {}),
+    async pickFolder() {
+      const options = { title: '选择数据文件夹', properties: ['openDirectory', 'createDirectory'], defaultPath: service.location.dataDir };
+      const win = windows.get('local');
+      const result = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options));
+      return result.canceled ? { cancelled: true } : { dataDir: result.filePaths[0] };
+    },
+    restart() {
+      if (quitting) return;
+      quitting = true;
+      app.relaunch();
+      shutdown().finally(() => app.exit(0));
+    },
+  } });
   if (smoke) {
     await checkDesktop();
     return;
@@ -230,7 +319,20 @@ async function open() {
 
 async function checkDesktop() {
   const remote = await start({ dbPath: ':memory:' });
-  sharedUrl = remote.url;
+  const relay = createRelay(socket => {
+    const upstream = connect(remote.port, '127.0.0.1');
+    socket.pipe(upstream).pipe(socket);
+    upstream.on('error', () => socket.destroy());
+    socket.on('error', () => upstream.destroy());
+    socket.on('close', () => upstream.destroy());
+    upstream.on('close', () => socket.destroy());
+  });
+  await new Promise((resolve, reject) => {
+    relay.once('error', reject);
+    relay.listen(0, '127.0.0.1', resolve);
+  });
+  sharedUrl = `http://127.0.0.1:${relay.address().port}/`;
+  sharedServicePort = remote.port;
   try {
     for (const [source, target] of [['local', service], ['server', remote]]) {
       target.workbench.createTask({ id: source + '-smoke', title: source });
@@ -252,6 +354,20 @@ async function checkDesktop() {
         throw new Error('Desktop did not select the expected data source: ' + source);
       }
       await checkPageZoom(win);
+      const storage = await win.webContents.executeJavaScript("fetch('/api/storage').then(response => response.json())");
+      if (storage.remote !== (source === 'server') || storage.edition !== 'desktop'
+        || (source === 'local' && storage.dataDir !== app.getPath('userData'))) {
+        throw new Error('Desktop storage did not follow the selected data source: ' + source);
+      }
+      if (source === 'server') {
+        const [command, backup] = await win.webContents.executeJavaScript(`(async () => {
+          const post = (path, body) => fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body) }).then(res => res.status);
+          return Promise.all([post('/api/command', { type: 'setTaskCompleted', taskId: 'server-smoke', completed: true }),
+            post('/api/storage/backup', {})]);
+        })()`);
+        if (command !== 200 || backup !== 403) throw new Error('Desktop tunnel POST or remote storage guard failed');
+      }
     }
     const localWindow = windows.get('local');
     await selectSource('local');
@@ -259,6 +375,7 @@ async function checkDesktop() {
   } finally {
     remote.server.closeAllConnections();
     await new Promise(resolve => remote.server.close(resolve));
+    await new Promise(resolve => relay.close(resolve));
   }
 
   try {
