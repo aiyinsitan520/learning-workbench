@@ -316,3 +316,6 @@ Codex 队列 W1 → W3 → W8a → W5 → W6；DSH 队列 W2 → W4 → W1b → 
 完成｜Codex｜T-W5｜Obsidian 单向导出、附件相对链接、冲突保护、导出锁和设置小节｜专项后端 7/7、浏览器 1/1；隔离 full PASS，服务 130/130、浏览器 93/93（临时副本浏览器并发 2）｜T-W1b 接入 #obsidianSection；7321 待安排重启。
 验收通过｜Claude｜T-W4｜2026-11-24：DSH 实现随 edab865、测试稳定性修复 35bb217、登记 88a937a；Claude 复跑 ui-projects/ui-planner/ui 65/65。下一单 T-W1b（DSH）待派——本会话重启后 Agent HUD 工具断开，需用户恢复 HUD。
 派单记录｜2026-11-24｜T-W1b → DSH 新会话 deepseek:session-6a6bebf9-2a4a-44dd-8240-caa8665eb600，消息 m-685845f5fee6。T-W5（Codex）首轮只回一句计划即结束、无改动；续做消息 m-bd208c0417a6 排队，需用户在 Codex 应用打开该对话。
+进行中｜DSH｜T-W1b｜app/public/js/storage-page.js、app/public/storage.css、app/public/index.html、app/public/js/app.js、app/public/js/views.js、app/public/js/ai-settings.js、app/test/ui-storage.test.mjs｜2026-11-24T16:52:00-08:00
+进行中｜DSH｜T-W8b｜app/public/js/harvest.js、app/public/harvest.css、app/public/js/projects.js、app/public/projects.css、app/public/js/board.js（仅刷新入口）、app/test/ui-harvest.test.mjs｜2026-11-25T00:55:58+00:00
+验收通过｜Claude｜T-W5｜2026-11-24：Codex 提交 704d88e，隔离副本 full PASS（服务 130、浏览器 93）；Claude 抽查导出安全（符号链接/联接点与 nlink 拒绝、路径穿越、改过与清单外文件不动、锁）并复跑 obsidian 8/8。真实 Obsidian 客户端未验证。DSH 同时认领 T-W1b 与 T-W8b（文件基本不相交，接受）。
