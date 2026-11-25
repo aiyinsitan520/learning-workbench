@@ -1,0 +1,71 @@
+/* 新手引导、帮助面板与空状态提示（T-W9，js/tour.js）。只引用令牌，不写颜色值。 */
+
+/* 顶栏「?」 */
+.helpbtn{font:600 15px var(--num);color:var(--muted)}
+
+/* 首次打开的欢迎卡：页内普通卡片，不遮挡、不抢焦点 */
+.tour-welcome{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 var(--gap);padding:12px 16px;
+  border:1px solid var(--accent-line);border-radius:var(--radius-m);
+  background:var(--hero-bg);color:var(--hero-ink);box-shadow:var(--shadow-1)
+}
+.tour-welcome img{width:40px;height:40px;flex:none}
+.tour-welcome-copy{display:grid;gap:2px;flex:1 1 200px;min-width:0}
+.tour-welcome-copy small{color:var(--muted);font-size:12px}
+.tour-welcome-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* 引导：整屏挡住点击，聚光圈用超大阴影压暗其余部分 */
+.tour-layer{position:fixed;inset:0;z-index:900}
+.tour-spot{
+  position:fixed;border-radius:var(--radius-m);box-shadow:0 0 0 200vmax var(--backdrop);
+  outline:2px solid var(--focus-ring);outline-offset:0;pointer-events:none;
+  transition:left .22s var(--ease),top .22s var(--ease),width .22s var(--ease),height .22s var(--ease)
+}
+.tour-bubble{
+  position:fixed;width:min(330px,calc(100vw - 16px));padding:14px 16px 12px;
+  border:1px solid var(--line-strong);border-radius:var(--radius-l);
+  background:var(--surface);color:var(--ink);box-shadow:var(--shadow-pop)
+}
+.tour-count{color:var(--muted);font:12px var(--num)}
+.tour-bubble h2{margin:4px 0 6px;font-size:16px;color:var(--ink)}
+.tour-bubble p{margin:0;color:var(--ink-2);font-size:13.5px;line-height:1.6}
+.tour-dots{display:flex;gap:5px;margin:12px 0 10px}
+.tour-dots i{width:6px;height:6px;border-radius:50%;background:var(--line-strong)}
+.tour-dots i.on{width:16px;border-radius:999px;background:var(--accent)}
+.tour-actions{display:flex;align-items:center;gap:8px}
+.tour-actions .tour-skip{margin-inline-end:auto}
+@media (prefers-reduced-motion:reduce){.tour-spot{transition:none}}
+
+/* 帮助面板（在 #dialog 里） */
+.tour-help{max-width:620px}
+.tour-help h3{margin:16px 0 8px;font-size:14px;color:var(--ink-2)}
+.tour-features{display:grid;gap:8px;margin:0;padding:0;list-style:none}
+.tour-features li{
+  display:flex;align-items:center;gap:10px;padding:8px 10px;
+  border:1px solid var(--line);border-radius:var(--radius-s);background:var(--surface-2)
+}
+.tour-features li > div{flex:1 1 auto;min-width:0}
+.tour-features b{font-size:13.5px;color:var(--ink)}
+.tour-features p{margin:2px 0 0;color:var(--muted);font-size:12.5px;line-height:1.5}
+.tour-features button{flex:none}
+.tour-keys{width:100%;border-collapse:collapse;font-size:13px}
+.tour-keys th,.tour-keys td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:start;vertical-align:top}
+.tour-keys th{width:40%;font-weight:400;white-space:nowrap}
+.tour-keys td{color:var(--ink-2)}
+.tour-keys kbd{
+  display:inline-block;padding:1px 6px;border:1px solid var(--line);border-radius:var(--radius-xs);
+  background:var(--surface-2);color:var(--ink-2);font:12px var(--num)
+}
+@media (max-width:440px){
+  .tour-features li{flex-wrap:wrap}
+  .tour-keys th{white-space:normal}
+}
+
+/* 空状态里的「试试……」 */
+.planner-try{
+  position:absolute;top:calc(var(--hour-height) * 2 + 4px);left:calc(var(--ruler-width) + 6px);right:8px;
+  margin:0;padding:6px 8px;
+  border:1px dashed var(--line-strong);border-radius:var(--radius-s);
+  background:var(--surface);color:var(--muted);font-size:12px;line-height:1.5;pointer-events:none
+}
+.proj-try,.harvest-try{margin:6px 0 8px;color:var(--muted);font-size:12.5px;line-height:1.5}

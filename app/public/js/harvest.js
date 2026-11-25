@@ -2,6 +2,7 @@
 import { newId } from './api.js';
 import { localToday } from './dom.js';
 import { esc } from './icons.js';
+import { registerContextMenu } from './context-menu.js';
 import { parseHarvest, formatHarvest, splitTags, CHATGPT_PROMPT, HARVEST_LIMITS as limits } from './harvest-format.js';
 
 const PAGE_SIZE = 20;
@@ -39,6 +40,33 @@ document.addEventListener(FILTER_EVENT, (event) => {
   void load(page);
 });
 
+/** 复制为 Markdown（右键菜单，T-W7）：贴进 Obsidian / 笔记软件时保留层次。 */
+export function harvestMarkdown(card) {
+  const out = ['## ' + (card.title ?? '')];
+  if (card.conclusion) out.push('', '> ' + card.conclusion);
+  if (card.points?.length) out.push('', '**要点**', ...card.points.map((p) => '- ' + p));
+  if (card.todos?.length) out.push('', '**待办**', ...card.todos.map((t) => '- [ ] ' + todoText(t)));
+  if (card.tags?.length) out.push('', card.tags.map((t) => '#' + t).join(' '));
+  if (card.sourceUrl) out.push('', '来源：[' + (sourceHost(card.sourceUrl) || card.sourceUrl) + '](' + card.sourceUrl + ')');
+  return out.join('\n');
+}
+
+registerContextMenu('[data-harvest-card]', (target) => {
+  const page = currentPage;
+  const card = page?.cards.find((item) => item.id === target.dataset.harvestCard);
+  if (!card) return null;
+  const reviewOn = Boolean(card.review?.nextDay);
+  return [
+    { label: '复制为 Markdown', icon: '⧉', run: () => copyText(page.ctx, harvestMarkdown(card), '已复制为 Markdown') },
+    { label: card.starred ? '取消星标' : '星标', icon: card.starred ? '☆' : '★', run: () => setStar(page, card, !card.starred) },
+    { label: reviewOn ? '移出复习' : '加入复习', icon: '↻', run: () => setReview(page, card, !reviewOn) },
+    { label: '关联项目…', icon: '⛓', run: () => openLink(page, card) },
+    { label: '编辑', icon: '✎', run: () => openEdit(page.ctx, card) },
+    '-',
+    { label: '删除', icon: '×', danger: true, run: () => confirmDelete(page.ctx, card) },
+  ];
+});
+
 /**
  * 标签颜色：按标签名哈希到固定的几个令牌色变体里选，不写颜色值。
  * 换皮肤时这几个类跟着令牌变，深色「摩卡夜」也仍然可读。
@@ -74,7 +102,7 @@ export function refreshHarvest() {
   if (document.querySelector('#dialog[open]')) return false;
   // 正在原地编辑要点/待办时不能重绘，否则那一行会被换成新节点、编辑中断
   if (page.editing || page.root.querySelector('[contenteditable="true"]')) return false;
-  void load(page);
+  void load(page, false, { keep: true });
   return true;
 }
 
@@ -85,7 +113,7 @@ export function showHarvest(host, ctx) {
       page.view = ctx.state.view;
       // 正在原地编辑或输入时不要重读列表：外壳每次重绘都会调到这里，重读会把那一行换掉
       if (page.editing || page.root.querySelector('[contenteditable="true"]')) return;
-      if (!promoting && page.cards.length) void load(page);
+      if (!promoting && page.cards.length) void load(page, false, { keep: true });
       else updateScheduleButtons(page);
     }
     return;
@@ -159,13 +187,18 @@ export function showHarvest(host, ctx) {
   void load(page);
 }
 
-async function load(page, append = false) {
+/**
+ * keep=true：原地刷新（实时刷新、外壳重绘），按已加载的条数重读，
+ * 否则点过「加载更多」后任何一次刷新都会把列表缩回前 20 条。换筛选、搜索时不传，回到第一页。
+ */
+async function load(page, append = false, { keep = false } = {}) {
   if (!page.root.isConnected) return;
   clearTimeout(page.timer);
   page.timer = 0;
   const seq = ++page.seq;
   const offset = append ? page.cards.length : 0;
-  const query = new URLSearchParams({ q: page.q, tag: page.tag, limit: PAGE_SIZE, offset });
+  const limit = keep && !append ? Math.min(200, Math.max(PAGE_SIZE, page.cards.length)) : PAGE_SIZE;
+  const query = new URLSearchParams({ q: page.q, tag: page.tag, limit, offset });
   if (page.project) query.set('project', page.project);
   if (page.starred) query.set('starred', '1');
   if (page.due) query.set('due', '1');
@@ -252,7 +285,8 @@ function renderResults(page) {
       : '<section class="harvest-card harvest-empty"><h2>把对话里的精华存下来</h2><ol>' +
         '<li>复制 ChatGPT 口令，放进 ChatGPT 的自定义指令。</li>' +
         '<li>问完后发送「收」，复制它给出的精华。</li>' +
-        '<li>回到工作台按 <kbd>Ctrl+Shift+V</kbd>，预览后保存。</li></ol></section>');
+        '<li>回到工作台按 <kbd>Ctrl+Shift+V</kbd>，预览后保存。</li></ol>' +
+        '<p class="harvest-try">试试：现在就点右上角「粘贴收获」，手动填一张卡片看看效果。</p></section>');
   const more = page.root.querySelector('[data-harvest-more]');
   more.hidden = page.cards.length >= page.total;
   more.textContent = '加载更多';

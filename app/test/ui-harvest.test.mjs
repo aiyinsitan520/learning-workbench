@@ -314,6 +314,13 @@ test('空库步骤、复制口令和分页', async () => {
   assert.equal(await page.evaluate('return document.querySelector("[data-harvest-more]").hidden;'), true);
   assert.equal(await page.count('[data-harvest-card="paging-1"]'), 1);
   assert.match(await page.text('[data-harvest-tag="分页"]'), /22/);
+  // 回归（2026-11-24 验收 T-W8b 时满载复现）：点过「加载更多」后，实时刷新 / 外壳重绘不能把列表缩回前 20 条
+  await api('/api/command', { command: {
+    type: 'createTask', id: 'paging-live-task', title: '分页期间的新任务', course: '', estimatedSeconds: null,
+  } });
+  await page.waitFor('__wbState.view.pending.some((t) => t.id === "paging-live-task")');
+  await new Promise((r) => setTimeout(r, 800));
+  assert.equal(await page.count(sel('card')), 22);
 });
 
 // ---------------------------------------------------------------- T-W8b：卡片界面重做

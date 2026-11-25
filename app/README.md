@@ -101,6 +101,8 @@ app/
     js/harvest.js    收获页、粘贴预览和卡片待办
     js/harvest-format.js  收获固定格式的解析、生成与 ChatGPT 口令
     js/update.js     左下角版本号 + 「软件更新」对话框
+    js/context-menu.js  右键菜单：registerContextMenu(selector, build)，键盘 Shift+F10 / ContextMenu、触屏长按；样式 menu.css
+    js/tour.js       新手引导（首次欢迎卡、聚光圈引导，localStorage workbench.tour.v1）与顶栏「?」帮助面板；样式 tour.css
   test/              数据层、服务层、端到端 UI 测试
 ```
 

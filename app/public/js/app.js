@@ -19,9 +19,11 @@ import { focusSecondsFor } from './plan-now.js';
 import { bindUpdates } from './update.js';
 import { showHarvest, openHarvestCapture, refreshHarvest } from './harvest.js';
 import { startLive, openNoteHasDraft, refreshOpenNote, restoreLiveView } from './live.js';
+import { registerContextMenu, isContextMenuOpen } from './context-menu.js';
+import { bindTour, isTourActive } from './tour.js';
 import {
   PAGES, LEGACY_PAGES, activityPage, calendarPage, focusPage, mmss, renderDone,
-  renderPending, renderProgress, renderRail, taskTitle, todoTasks, weekdayOf, PLAN_COURSE,
+  renderPending, renderProgress, renderRail, taskTitle, todoTasks, weekdayOf, PLAN_COURSE, clockOf,
 } from './views.js';
 
 const FOLD_KEY = 'workbench.compact';
@@ -259,7 +261,9 @@ function checkDayRollover() {
 // 每 30 秒问一次服务的 build，变了就在「没有对话框、没有拖动、手记已保存」时整页重载。
 let pageBuild = null;
 let buildCheckedAt = 0;
-const refreshBlocked = () => $('#dialog')?.open || document.querySelector('.planner-dragging') || state.busy;
+// 右键菜单开着时也先别重绘：菜单指向的卡片会被换掉（T-W7）；引导进行中也不重绘，免得高亮的元素被换掉（T-W9）
+const refreshBlocked = () => $('#dialog')?.open || document.querySelector('.planner-dragging') || state.busy
+  || isContextMenuOpen() || isTourActive();
 
 async function checkBuild(force = false) {
   const now = Date.now();
@@ -557,6 +561,22 @@ document.addEventListener('keydown', (event) => {
     openHarvestCapture(moduleCtx);
     return;
   }
+  // 时间块 Ctrl+C / Ctrl+V（T-W7）：焦点在时间块上复制；焦点在时间轴某一小时或某个块上时粘贴到那里。
+  // 页面上有选中文字时让浏览器照常复制文字。
+  if (!inField && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
+    const key = event.key.toLowerCase();
+    const block = blockOf(el);
+    if (key === 'c' && block && !String(window.getSelection()).trim()) {
+      event.preventDefault();
+      copyBlock(block);
+      return;
+    }
+    if (key === 'v' && blockClip && el?.closest('#plannerGrid')) {
+      const hour = el.closest('[data-plan-hour]');
+      const at = hour ? Number(hour.dataset.planHour) : block ? block.startsAt + block.plannedSeconds : null;
+      if (at != null) { event.preventDefault(); pasteBlock(at); return; }
+    }
+  }
   if (inField || event.metaKey || event.ctrlKey || event.altKey) return;
 
   if (PAGE_KEYS[event.key]) {
@@ -629,6 +649,8 @@ const moduleCtx = {
 const projects = bindProjects($('#projects'), moduleCtx, { planner });
 // 软件更新：左下角版本号 + 更新对话框（js/update.js，状态来自 /api/update）
 bindUpdates($('#updateBtn'), moduleCtx);
+// 新手引导（首次打开的欢迎卡、聚光圈引导）与顶栏「?」帮助面板（T-W9）
+bindTour(moduleCtx);
 // 番茄钟悬浮小窗（Document Picture-in-Picture，退路为视频画中画），随 tick 与重绘刷新
 const pipTimer = bindPipTimer({ state, commands, taskName, remainingSeconds, notify });
 
@@ -642,6 +664,99 @@ async function toggleDesktopIsland() {
     notify(errorText(err), 'bad');
   }
 }
+
+// ---------------------------------------------------------------- 右键菜单（T-W7）
+// 通用菜单在 context-menu.js；长期项目卡与收获卡的菜单由 projects.js / harvest.js 各自注册。
+// 这里注册日计划时间块、时间轴空白处和左栏待办，动作全部复用已有命令。
+
+const DURATIONS = [15, 30, 45, 60, 90];
+const DAY = 86400;
+/** 页内的时间块剪贴板：只记任务和时长，粘贴时新建一个块（同一任务可排多次）。 */
+let blockClip = null;
+
+function blockOf(el) {
+  const id = el?.closest?.('.planner-block')?.querySelector('[data-block]')?.dataset.block;
+  return id ? state.view?.scheduled.find((b) => b.id === id) : undefined;
+}
+
+function copyBlock(block) {
+  blockClip = { taskId: block.taskId, title: block.task.title, plannedSeconds: block.plannedSeconds };
+  notify(`已复制「${block.task.title}」，在时间轴空白处右键或按 Ctrl+V 粘贴`);
+}
+
+function pasteBlock(startsAt) {
+  if (!blockClip || !state.view) return;
+  const room = state.view.range.end - startsAt;
+  if (room < 60) { notify('这里离午夜太近，放不下', 'bad'); return; }
+  const plannedSeconds = Math.min(blockClip.plannedSeconds, room);
+  void saveBlock({ id: newId('block'), taskId: blockClip.taskId, startsAt, plannedSeconds }, '已粘贴时间块')
+    .then((ok) => { if (ok) planner.reveal(startsAt, plannedSeconds); });
+}
+
+/** 排进 / 移到下一个放得下的空档（今天从此刻起；看别的日期从 06:00 起）。 */
+function placeNext(block, seconds, options, success) {
+  const at = planner.nextFreeStart(seconds, options);
+  if (at == null) { notify(options?.after ? '后面没有放得下的空档了' : '今天排满了，先腾一个空档', 'bad'); return; }
+  void saveBlock({ ...block, startsAt: at, plannedSeconds: seconds }, `${success} ${clockOf(at, state.view.timeZone)}`)
+    .then((ok) => { if (ok) planner.reveal(at, seconds); });
+}
+
+registerContextMenu('#plannerGrid [data-plan-hour]', (target, event) => {
+  if (!state.view) return null;
+  const hour = Number(target.dataset.planHour);
+  // 键盘打开（没有指针位置）时取整点
+  const y = event?.clientY;
+  const fraction = y ? (y - target.getBoundingClientRect().top) / planner.hourHeight() : 0;
+  const startsAt = hour + Math.max(0, Math.min(3, Math.floor(fraction * 4))) * 900;
+  const label = clockOf(startsAt, state.view.timeZone);
+  return [
+    { label: `在 ${label} 添加时间块`, icon: '＋', run: () => dialogs.plannerBlockDialog(startsAt) },
+    blockClip ? { label: `粘贴「${blockClip.title}」`, icon: '⧉', shortcut: 'Ctrl+V', run: () => pasteBlock(startsAt) } : null,
+  ];
+});
+
+registerContextMenu('#plannerGrid .planner-block', (target) => {
+  const block = blockOf(target);
+  if (!block) return null;
+  const done = Boolean(block.task.completedAt);
+  const current = Math.round(block.plannedSeconds / 60);
+  const maxMinutes = Math.floor((state.view.range.end - block.startsAt) / 60);
+  const same = { id: block.id, taskId: block.taskId };
+  return [
+    { label: '打开正文', icon: '¶', run: () => openTaskEditor(block.taskId, block.id) },
+    { label: '开始专注', icon: '▶', disabled: done, run: () => actions.start({ focusTask: block.taskId }) },
+    done
+      ? { label: '取消完成', icon: '↺', run: () => commands.undo(block.taskId) }
+      : { label: '标记完成', icon: '✓', run: () => commands.complete(block.taskId) },
+    { label: '改时长', icon: '⏱', children: DURATIONS.map((m) => ({
+      label: `${m} 分钟`, icon: m === current ? '✓' : '', disabled: m > maxMinutes || m === current,
+      run: () => saveBlock({ ...same, startsAt: block.startsAt, plannedSeconds: m * 60 }, `已改为 ${m} 分钟`),
+    })) },
+    '-',
+    { label: '复制', icon: '⧉', shortcut: 'Ctrl+C', run: () => copyBlock(block) },
+    { label: '复制到明天同一时间', icon: '→', run: () => saveBlock(
+      { id: newId('block'), taskId: block.taskId, startsAt: block.startsAt + DAY, plannedSeconds: block.plannedSeconds },
+      '已复制到明天同一时间',
+    ) },
+    { label: '移到下一个空档', icon: '⇣', run: () => placeNext(same, block.plannedSeconds,
+      { exclude: block.id, after: block.startsAt + block.plannedSeconds }, '已移到') },
+    '-',
+    { label: '删除时间块', icon: '×', danger: true,
+      run: () => run(() => api.command({ type: 'removeSchedule', blockId: block.id }), { success: '已删除时间块' }) },
+  ];
+});
+
+registerContextMenu('#pending .task', (target) => {
+  const task = findTask(target.querySelector('[data-task-note]')?.dataset.taskNote);
+  if (!task) return null;
+  return [
+    { label: '排进下一个空档', icon: '⇣',
+      run: () => placeNext({ id: newId('block'), taskId: task.id }, DEFAULT_PLAN_SECONDS, undefined, '已排进') },
+    { label: '打开正文', icon: '¶', run: () => openTaskEditor(task.id) },
+    { label: '标记完成', icon: '✓', run: () => commands.complete(task.id) },
+    { label: '编辑…', icon: '✎', run: () => dialogs.taskDialog(task.id) },
+  ];
+});
 
 hydrateIcons();
 if (prefs.get(FOLD_KEY) === '1') setFold(true);

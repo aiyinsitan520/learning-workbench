@@ -18,6 +18,8 @@ if (s !== 'mint') document.documentElement.dataset.skin = s;</script>
 <link rel="stylesheet" href="/ai.css">
 <link rel="stylesheet" href="/harvest.css">
 <link rel="stylesheet" href="/storage.css">
+<link rel="stylesheet" href="/menu.css">
+<link rel="stylesheet" href="/tour.css">
 </head>
 <body>
 <header class="macbar">
@@ -26,13 +28,14 @@ if (s !== 'mint') document.documentElement.dataset.skin = s;</script>
     <b id="contextPage">今日工作台</b>
     <span class="ctxdate"><span id="todayText">正在读取…</span><span class="day" id="weekday"></span></span>
   </div>
-  <nav id="tools" class="toolbar" aria-label="切换中央页面"></nav>
+  <nav id="tools" class="toolbar" aria-label="切换中央页面" data-tour="nav"></nav>
   <div class="headtools">
-    <button type="button" id="aiSettingsBtn" class="iconbtn ghost" data-page="ai" title="模型接入" aria-label="模型接入"><span data-icon="gear"></span></button>
+    <button type="button" id="helpBtn" class="iconbtn ghost helpbtn" data-tour-help title="使用帮助（?）" aria-label="使用帮助">?</button>
+    <button type="button" id="aiSettingsBtn" class="iconbtn ghost" data-page="ai" data-tour="data" title="模型接入" aria-label="模型接入"><span data-icon="gear"></span></button>
     <button type="button" id="skinToggle" class="fonttoggle skintoggle" aria-label="换皮肤"
       title="换皮肤"><span class="skinmascot" aria-hidden="true"></span><b>奶糖 Mac</b></button>
     <button type="button" id="fontToggle" class="fonttoggle" aria-pressed="true">圆体</button>
-    <div class="island">
+    <div class="island" data-tour="focus">
       <button class="islandMain" id="islandMain" aria-expanded="false" aria-controls="islandBox"
         aria-label="贾维喵专注灵动岛">
         <img src="/kitten.png" alt="">
@@ -64,17 +67,17 @@ if (s !== 'mint') document.documentElement.dataset.skin = s;</script>
       <input maxlength="48" id="newTitle" aria-label="新任务名称" placeholder="写下一个新任务…" autocomplete="off">
       <button title="添加任务" aria-label="添加任务"><span data-icon="plus"></span></button>
     </form>
-    <div class="sidebar-mode" aria-label="任务侧栏视图">
+    <div class="sidebar-mode" aria-label="任务侧栏视图" data-tour="todo">
       <button type="button" data-sidebar-view="plan" aria-pressed="true">计划</button>
       <button type="button" data-sidebar-view="tasks" aria-pressed="false">待办</button>
     </div>
     <div id="pending" class="scrolly" aria-label="待办任务" hidden></div>
-    <div id="planner" class="planner-panel">
+    <div id="planner" class="planner-panel" data-tour="planner">
       <div class="planner-toolbar">
         <span id="plannerDate"></span>
         <button type="button" data-plan-add aria-label="添加时间块" title="添加时间块">＋</button>
       </div>
-      <div id="plannerGrid" class="planner-scroll" aria-label="日计划时间轴"></div>
+      <div id="plannerGrid" class="planner-scroll" aria-label="日计划时间轴" data-tour="menu"></div>
     </div>
     <div class="leftfoot">
       <span>本机资料</span>
@@ -95,7 +98,7 @@ if (s !== 'mint') document.documentElement.dataset.skin = s;</script>
       </div>
       <img src="/desk.png" alt="贾维斯喵伏在学习笔记旁">
     </section>
-    <div id="mainContent"></div>
+    <div id="mainContent" data-tour="notes"></div>
   </main>
 
   <aside class="right" aria-label="今日概况">
@@ -114,7 +117,7 @@ if (s !== 'mint') document.documentElement.dataset.skin = s;</script>
       </div>
     </section>
     <!-- 长期项目：js/projects.js 渲染，数据来自 view.projects -->
-    <section id="projects" class="right-projects" aria-label="长期项目"></section>
+    <section id="projects" class="right-projects" aria-label="长期项目" data-tour="projects"></section>
   </aside>
 </div>
 

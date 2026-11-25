@@ -93,7 +93,7 @@ export function renderPending(state, activeTaskId) {
 /** 顶栏分组工具条：一组按钮共用一块滑动选中底板。 */
 export function renderTools() {
   return '<span class="toolbar-pill" aria-hidden="true"></span>' + Object.keys(NAV_LABELS).map((key) => `
-    <button type="button" class="tool" data-page="${key}" aria-pressed="false" title="${PAGES[key]}">${icon(key)}<span>${NAV_LABELS[key]}</span>${key === 'harvest' ? '<i class="tool-dot" data-harvest-dot hidden aria-label="有待复习的收获"></i>' : ''}</button>`).join('');
+    <button type="button" class="tool" data-page="${key}"${key === 'harvest' ? ' data-tour="harvest"' : ''} aria-pressed="false" title="${PAGES[key]}">${icon(key)}<span>${NAV_LABELS[key]}</span>${key === 'harvest' ? '<i class="tool-dot" data-harvest-dot hidden aria-label="有待复习的收获"></i>' : ''}</button>`).join('');
 }
 
 /** 侧栏折叠后的图标轨道：每个待办取标题首字。 */

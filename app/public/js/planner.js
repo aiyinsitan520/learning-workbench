@@ -90,8 +90,11 @@ function renderAxis(view, start, end, hourHeight) {
         title="拖动下沿，或用 ↑ 缩短、↓ 加长（Shift 为 15 分钟）"></button>
     </div>`;
   });
+  // 空日计划的提示（T-W9）：不挡点击，有了第一个块就消失
+  const hint = blocks.length ? ''
+    : '<p class="planner-try">试试：点时间轴空白处加一个时间块，或把待办、长期项目拖进来。</p>';
   return `<div class="planner-axis" style="--hour-height:${hourHeight}px">
-      ${hours.join('')}<div class="planner-layer">${blocks.join('')}</div>
+      ${hours.join('')}<div class="planner-layer">${blocks.join('')}</div>${hint}
     </div><time class="planner-end">00:00</time>`;
 }
 
@@ -238,14 +241,17 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
    * 放不下就返回 null（调用方提示「今天排满了」）——绝不能把 seconds 截短后返回一个起点，
    * 那会让调用方仍按原时长提交，块溢到次日。
    */
-  function nextFreeStart(seconds) {
+  function nextFreeStart(seconds, { exclude = null, after = null } = {}) {
     if (!view) return null;
     const wanted = Math.max(QUARTER, Math.round(Number(seconds) || DEFAULT_PLAN_SECONDS));
     // 比整条时间轴还长，今天不可能放下
     if (wanted > end - start) return null;
     const now = Math.floor(Date.now() / 1000);
-    const earliest = view.day === localToday(view.timeZone) ? Math.max(start, Math.ceil(now / STEP) * STEP) : start;
+    let earliest = view.day === localToday(view.timeZone) ? Math.max(start, Math.ceil(now / STEP) * STEP) : start;
+    // 右键「移到下一个空档」（T-W7）：从该块结束之后找，且不把它自己算作占用
+    if (after != null) earliest = Math.max(earliest, after);
     const spans = view.scheduled
+      .filter((block) => block.id !== exclude)
       .map((block) => [block.startsAt, block.startsAt + block.plannedSeconds])
       .filter(([from, to]) => to > start && from < end)
       .sort((a, b) => a[0] - b[0]);

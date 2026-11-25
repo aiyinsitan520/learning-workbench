@@ -8,6 +8,7 @@
 import { newId } from './api.js';
 import { esc, icon } from './icons.js';
 import { localToday } from './dom.js';
+import { registerContextMenu } from './context-menu.js';
 
 /** 项目没设「每天投入」时，拖进日计划默认排 30 分钟（与 planner.js 的 DEFAULT_PLAN_SECONDS 一致）。 */
 const FALLBACK_SECONDS = 1800;
@@ -38,9 +39,58 @@ export function bindProjects(hostEl, moduleCtx, tools = {}) {
     document.addEventListener('click', onClick);
     document.addEventListener('submit', onSubmit);
     document.addEventListener('change', onChange);
+    registerContextMenu('[data-project-card]', projectMenu);
     bound = true;
   }
   return { render };
+}
+
+// ---------------------------------------------------------------- 右键菜单（T-W7）
+
+function projectMenu(target) {
+  const project = findProject(target.dataset.projectCard);
+  if (!project) return null;
+  const view = ctx.state.view;
+  const today = view.day === localToday(view.timeZone);
+  const canPlan = planable(project);
+  return [
+    { label: today ? '排进今天' : '排进这天', icon: '＋', disabled: !canPlan, run: () => planNow(project.id) },
+    { label: '开始专注', icon: '▶', disabled: !canPlan,
+      run: () => target.querySelector('.proj-start')?.click() },
+    { label: `写${today ? '今天' : '这天'}进展`, icon: '✎', run: () => openLog(project) },
+    { label: '打开正文', icon: '¶', run: () => { state.openMenu = null; ctx.openTask(project.mainTaskId); } },
+    '-',
+    { label: '编辑项目', icon: '⚙', run: () => { state.openMenu = null; openForm(project); } },
+    project.completedAt
+      ? { label: '重开项目', icon: '↺', run: () => setState(project.id, 'reopen', '项目已重开') }
+      : { label: '完成项目', icon: '✓', run: () => openConfirm(project, 'complete') },
+    project.archivedAt ? null : { label: '归档', icon: '⌫', run: () => openConfirm(project, 'archive') },
+  ];
+}
+
+/** 「写今天进展」：一天一条，覆盖写（saveProjectLog），右栏卡片上的「今天：…」随之更新。 */
+function openLog(project) {
+  const day = ctx.state.view.day;
+  ctx.modal(`<h2 class="dialoghead">${esc(project.title)} · ${esc(day)} 的进展</h2>
+    <form class="proj-form" data-project-log-form="${esc(project.id)}">
+      <label class="proj-field">今天推进了什么
+        <textarea id="projLogNote" rows="4" maxlength="2000" placeholder="一两句话就行，例如：写完第二章初稿">${esc(project.log?.note ?? '')}</textarea>
+      </label>
+      <div class="dialogactions">
+        <button type="button" class="light" data-project-cancel>取消</button>
+        <button type="submit" class="primary">保存进展</button>
+      </div>
+    </form>`);
+  const box = document.querySelector('#projLogNote');
+  box?.focus();
+  document.querySelector('[data-project-log-form]').onsubmit = async (event) => {
+    event.preventDefault();
+    const note = box.value.trim();
+    const ok = await ctx.run(() => ctx.api.command({
+      type: 'saveProjectLog', projectId: project.id, day, note, progress: project.log?.progress ?? null,
+    }), '进展已保存');
+    if (ok) ctx.closeDialog();
+  };
 }
 
 // ---------------------------------------------------------------- 日期小工具
@@ -148,6 +198,7 @@ function render(view) {
   let next;
   if (!active.length && !done.length) {
     next = `${head}<p class="proj-empty">连续多天的事，建成长期项目。</p>
+      <p class="proj-try">试试：建一个「两周背完 3000 词」，每天按住它拖进左栏计划。</p>
       <button type="button" class="light proj-emptybtn" data-project-new>新建长期项目</button>`;
   } else {
     next = `${head}<div class="proj-list">${active.map((p) => cardMarkup(p, { today })).join('')}</div>${doneMarkup(done)}`;
