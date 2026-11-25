@@ -315,3 +315,4 @@ Codex 队列 W1 → W3 → W8a → W5 → W6；DSH 队列 W2 → W4 → W1b → 
 提交记录｜2026-11-24｜DSH｜T-W4 拆在两个提交：edab865（[Claude] 派单会话…，Claude 并行提交时把我的暂存区一并带走，含 planner.js/projects.js/app.js/planner.css/projects.css/ui-projects.test.mjs/NEXT_TASKS.md/SESSION_LOG.md 全部 T-W4 改动）＋35bb217（[DSH] T-W4 长期项目拖进日计划，只含 ui-projects.test.mjs 的钟点无关修复：把页面 Date.now 钉在当天 08:00，半夜跑也有空档）。未推送。
 进行中｜Codex｜T-W5｜Obsidian 导出模块、路由、小节、契约、测试与文档｜2026-11-24T07:33:11.4683704-08:00
 验收通过｜Claude｜T-W4｜2026-11-24：DSH 实现随 edab865、测试稳定性修复 35bb217、登记 88a937a；Claude 复跑 ui-projects/ui-planner/ui 65/65。下一单 T-W1b（DSH）待派——本会话重启后 Agent HUD 工具断开，需用户恢复 HUD。
+派单记录｜2026-11-24｜T-W1b → DSH 新会话 deepseek:session-6a6bebf9-2a4a-44dd-8240-caa8665eb600，消息 m-685845f5fee6。T-W5（Codex）首轮只回一句计划即结束、无改动；续做消息 m-bd208c0417a6 排队，需用户在 Codex 应用打开该对话。
