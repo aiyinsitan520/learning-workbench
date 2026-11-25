@@ -370,3 +370,32 @@ export interface Attachment {
   bytes: number;
   type: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
 }
+
+export interface ObsidianExportConfig {
+  vaultPath: string;
+  folder: string;
+  enabled: boolean;
+  auto: boolean;
+  include: { days: boolean; notes: boolean; harvests: boolean; projects: boolean };
+}
+
+export interface ObsidianExportStatus {
+  lastExportAt: string | null; // ISO 8601
+  written: number;
+  unchanged: number;
+  conflicts: string[]; // 导出子文件夹内的相对路径
+  error: string | null;
+}
+
+/**
+ * GET /api/obsidian → ObsidianExportState
+ * GET /api/obsidian/detect → { vaults: string[] }
+ * POST /api/obsidian/config  ObsidianExportConfig → ObsidianExportState
+ * POST /api/obsidian/export  {} → ObsidianExportState
+ * POST 接收 application/json。导出繁忙返回 409。
+ * app/public/js/obsidian-section.js 导出 mountObsidianSection(host: HTMLElement): void。
+ */
+export interface ObsidianExportState {
+  config: ObsidianExportConfig;
+  status: ObsidianExportStatus;
+}

@@ -18,6 +18,7 @@ import { UPDATE_CONFIG } from './lib/update-config.js';
 import { readFileSync } from 'node:fs';
 import { createStorage, prepareStorage, resolveStorage } from './lib/storage.js';
 import { createLive } from './lib/live.js';
+import { createObsidian, detectObsidianVaults } from './lib/obsidian.js';
 import { readAttachment, uploadAttachment } from './lib/attachments.js';
 import { createSourceUpdate, prepareSourceRestart } from './lib/source-update.js';
 
@@ -40,7 +41,7 @@ const MIME = {
 
 const BODY_LIMIT = 512 * 1024;
 const STORAGE_POSTS = new Set(['/api/storage/backup', '/api/storage/reveal', '/api/storage/pick-folder',
-  '/api/storage/relocate', '/api/restart', '/api/update']);
+  '/api/storage/relocate', '/api/restart', '/api/update', '/api/obsidian/config', '/api/obsidian/export']);
 // 顺序即导入顺序：被引用的表在前。AI 密钥不在库里（app/data/ai-providers.json），不会被导出。
 const BACKUP_TABLES = ['projects', 'tasks', 'schedule_blocks', 'focus_sessions', 'day_notes', 'note_blocks',
   'task_notes', 'task_note_days', 'project_logs', 'daily_reviews', 'harvests'];
@@ -57,6 +58,7 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
     protectedDirs: installDir ? [HERE, root, installDir] : [HERE, root] });
   const live = createLive(workbench);
   workbench.onCommit = live.committed;
+  const obsidian = createObsidian({ wb: workbench, dataDir: location.dataDir, revision: live.revision });
   // AI 模型配置文件默认放在数据库旁边；测试可传 fetchImpl 换掉真实网络请求。
   const ai = { configPath: aiConfigPath ?? (location.dataDir ? join(location.dataDir, 'ai-providers.json') : null), fetch: fetchImpl ?? fetch };
   const publicDir = join(root, 'public');
@@ -135,7 +137,7 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (url.pathname.startsWith('/api/')) {
         await handleApi(workbench, req, res, url, publicDir, ai, island, updater,
-          { storage, live, pickFolder, restart: serviceRestart, updateClients });
+          { storage, live, pickFolder, restart: serviceRestart, updateClients, obsidian });
         return;
       }
       await serveStatic(req, res, url.pathname, publicDir, projectDir);
@@ -147,6 +149,7 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
   // SSE 响应会一直占用活动连接，须在原生 close 开始等待前主动结束。
   const close = server.close.bind(server);
   server.close = (...args) => {
+    obsidian.close();
     live.close();
     return close(...args);
   };
@@ -182,7 +185,7 @@ async function publicBuild(dir) {
   return buildCache.value;
 }
 
-async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { storage, live, pickFolder, restart, updateClients }) {
+async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { storage, live, pickFolder, restart, updateClients, obsidian }) {
   const route = `${req.method} ${url.pathname}`;
   try {
     if (req.method === 'POST' && STORAGE_POSTS.has(url.pathname)
@@ -198,6 +201,18 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
       return;
     }
     switch (route) {
+      case 'GET /api/obsidian':
+        sendJson(res, 200, obsidian.get());
+        return;
+      case 'GET /api/obsidian/detect':
+        sendJson(res, 200, { vaults: detectObsidianVaults() });
+        return;
+      case 'POST /api/obsidian/config':
+        sendJson(res, 200, obsidian.configure(body));
+        return;
+      case 'POST /api/obsidian/export':
+        sendJson(res, 200, obsidian.run());
+        return;
       case 'GET /api/storage':
         sendJson(res, 200, storage.info());
         return;

@@ -313,6 +313,6 @@ Codex 队列 W1 → W3 → W8a → W5 → W6；DSH 队列 W2 → W4 → W1b → 
 验收通过｜Claude｜T-W6｜2026-11-24：Codex 提交 9793ad5，full PASS（服务 123、浏览器 92，Codex 跑）；Claude 抽查 git 调用（execFile 参数数组、--ff-only、无 reset/clean/checkout、测试只用临时仓库）并复跑 update 18/18。真实 GitHub 发布与桌面安装未实测。失误记录：Claude 的 edab865 误含 DSH 已暂存的 T-W4 前半改动，不回退，已通知 DSH；规则补「提交限定路径」。另：修复浏览器测试泄漏临时目录（1c8ffe6），清理 %TEMP% 204 个残留目录约 3GB。
 派单记录｜2026-11-24｜T-W5 → Codex（HUD，项目「个人智能工作台」，默认 high），会话 01a20e2f-9965-7413-a1af-2a0ce4a0a6fd，消息 m-af29327ef33c。DSH T-W4 误提交说明 m-2d6eac3bbf35。
 提交记录｜2026-11-24｜DSH｜T-W4 拆在两个提交：edab865（[Claude] 派单会话…，Claude 并行提交时把我的暂存区一并带走，含 planner.js/projects.js/app.js/planner.css/projects.css/ui-projects.test.mjs/NEXT_TASKS.md/SESSION_LOG.md 全部 T-W4 改动）＋35bb217（[DSH] T-W4 长期项目拖进日计划，只含 ui-projects.test.mjs 的钟点无关修复：把页面 Date.now 钉在当天 08:00，半夜跑也有空档）。未推送。
-进行中｜Codex｜T-W5｜Obsidian 导出模块、路由、小节、契约、测试与文档｜2026-11-24T07:33:11.4683704-08:00
+完成｜Codex｜T-W5｜Obsidian 单向导出、附件相对链接、冲突保护、导出锁和设置小节｜专项后端 7/7、浏览器 1/1；隔离 full PASS，服务 130/130、浏览器 93/93（临时副本浏览器并发 2）｜T-W1b 接入 #obsidianSection；7321 待安排重启。
 验收通过｜Claude｜T-W4｜2026-11-24：DSH 实现随 edab865、测试稳定性修复 35bb217、登记 88a937a；Claude 复跑 ui-projects/ui-planner/ui 65/65。下一单 T-W1b（DSH）待派——本会话重启后 Agent HUD 工具断开，需用户恢复 HUD。
 派单记录｜2026-11-24｜T-W1b → DSH 新会话 deepseek:session-6a6bebf9-2a4a-44dd-8240-caa8665eb600，消息 m-685845f5fee6。T-W5（Codex）首轮只回一句计划即结束、无改动；续做消息 m-bd208c0417a6 排队，需用户在 Codex 应用打开该对话。

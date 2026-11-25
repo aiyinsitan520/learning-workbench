@@ -1,0 +1,45 @@
+.wb-obsidian {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  min-width: 0;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--surface-2);
+}
+.wb-obsidian h3,
+.wb-obsidian p { margin: 0; }
+.wb-obsidian > label { display: grid; gap: 6px; min-width: 0; }
+.wb-obsidian input[type=text],
+.wb-obsidian select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+}
+.wb-obsidian fieldset {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+}
+.wb-obsidian-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.wb-obsidian-options label { display: inline-flex; align-items: center; gap: 4px; }
+.wb-obsidian input[type=checkbox] { accent-color: var(--accent); }
+.wb-obsidian button {
+  padding: 7px 12px;
+  font: inherit;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-btn);
+}
+.wb-obsidian button:disabled { opacity: .55; }
+.wb-obsidian a { color: var(--accent-ink); }
+.wb-obsidian [data-obsidian-conflicts] { margin: 0; padding-inline-start: 20px; overflow-wrap: anywhere; }
