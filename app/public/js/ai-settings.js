@@ -74,7 +74,7 @@ export function showAiSettings(host, ctx) {
   const root = document.createElement('section');
   root.className = 'ai-page';
   root.innerHTML = `<div class="ai-heading"><h1>模型接入</h1>
-    <div class="ai-actions">${button('add', '添加供应商', 'ai-primary')}${button('import', '导入')}${button('export', '导出（不含 Key）')}</div>
+    <div class="ai-actions">${button('add', '添加供应商', 'ai-primary')}${button('import', '导入')}${button('export', '导出（不含 Key）')}${button('storage', '数据与备份')}</div>
     </div><p class="ai-feedback" data-ai-status role="status">正在读取配置…</p>
     <div data-ai-content></div>
     <footer class="ai-privacy"><strong>数据与隐私</strong>
@@ -158,6 +158,7 @@ export function showAiSettings(host, ctx) {
         content.querySelector('[data-ai-preset]')?.focus();
         break;
       case 'cancel': render(); break;
+      case 'storage': ctx.gotoPage('storage'); break;
       case 'edit': openEditor(item, presets.find((preset) => preset.id === item.presetId)); break;
       case 'activate':
         await post('providers/activate', { id: item.id });

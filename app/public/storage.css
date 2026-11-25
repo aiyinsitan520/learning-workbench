@@ -1,0 +1,145 @@
+/* 「数据」设置页（js/storage-page.js）。只引用 tokens.css 的令牌，不写颜色值，
+   六套皮肤（尤其深色「摩卡夜」）与 390px 窄屏都要能看。 */
+
+.storage-page{max-width:880px;margin:0 auto;min-width:0;overflow-wrap:anywhere}
+.storage-caption{font:500 13.5px var(--small-text);color:var(--muted)}
+
+/* ------------------------------------------------------------ 卡片 */
+.storage-card{
+  display:block;margin-bottom:12px;padding:16px 18px;min-width:0;
+  border-radius:var(--radius-l);background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow-1);
+}
+.storage-card h2{margin:0 0 10px;font-size:15px}
+.storage-card h2 .ico{width:15px;height:15px;vertical-align:-2px;margin-right:3px;color:var(--accent)}
+.storage-where-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.storage-where-head h2{margin:0}
+.storage-note{margin:8px 0 0;font-size:12.5px;line-height:1.65;color:var(--muted)}
+.storage-note code{font-size:12px;color:var(--ink-2)}
+.storage-faint{font-size:11.5px;color:var(--faint)}
+.storage-faint code{font-size:11.5px}
+
+/* 位置徽标：默认 / 自定义 / 环境变量 */
+.storage-badge{
+  flex:none;padding:3px 9px;border-radius:var(--radius-btn);font-size:11.5px;font-weight:600;
+  background:var(--surface-3);color:var(--ink-2);border:1px solid var(--line);
+}
+.storage-badge[data-storage-badge="config"]{background:var(--accent-soft);color:var(--accent-ink);border-color:var(--accent-line)}
+.storage-badge[data-storage-badge="env"]{background:var(--danger-soft);color:var(--danger);border-color:var(--danger-line)}
+
+/* 完整路径：等宽、可换行、可整段选中 */
+.storage-path{
+  margin:0;padding:11px 13px;border-radius:var(--radius-m);min-width:0;
+  background:var(--surface-2);border:1px solid var(--line);
+  font:13px/1.5 var(--num);color:var(--ink);white-space:pre-wrap;word-break:break-all;user-select:all;
+}
+.storage-path-inline{font-size:12.5px;word-break:break-all}
+
+/* ------------------------------------------------------------ 按钮与动作行 */
+.storage-actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:12px}
+.storage-btn{
+  font:inherit;font-size:13px;padding:7px 13px;cursor:pointer;color:var(--ink);
+  background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-btn);
+}
+.storage-btn:hover:not(:disabled){background:var(--hover);border-color:var(--line-strong)}
+.storage-btn:disabled{opacity:.55;cursor:not-allowed}
+.storage-btn.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.storage-btn.primary:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover)}
+
+/* ------------------------------------------------------------ 用量 */
+.storage-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.storage-metrics>div{padding:12px 14px;border-radius:var(--radius-m);background:var(--surface-2);
+  border:1px solid var(--line);min-width:0}
+.storage-metrics small{display:block;font-size:11.5px;color:var(--muted)}
+.storage-metrics strong{display:block;margin-top:5px;font:500 21px/1.15 var(--heading);color:var(--hero-ink);
+  font-variant-numeric:tabular-nums}
+.storage-metrics span{display:block;margin-top:4px;font:11.5px/1.4 var(--small-text);color:var(--faint)}
+
+/* ------------------------------------------------------------ 共享提示 */
+.storage-tip{
+  margin-bottom:12px;padding:14px 16px;border-radius:var(--radius-l);min-width:0;
+  background:var(--hero-bg);border:1px solid var(--accent-line);
+}
+.storage-tip b{display:block;font-size:13.5px;color:var(--hero-ink)}
+.storage-tip p{margin:7px 0 0;font-size:12.5px;line-height:1.65;color:var(--ink-2)}
+.storage-tip ul{margin:6px 0 0;padding-left:18px;font-size:12.5px;line-height:1.7;color:var(--ink-2)}
+.storage-tip code{font-size:12px;word-break:break-all}
+.storage-tip.ok{background:var(--accent-soft);border-color:var(--accent-line)}
+.storage-tip.ok b{color:var(--accent-ink)}
+
+/* 只读（服务器数据库） */
+.storage-readonly{
+  margin-bottom:12px;padding:14px 16px;border-radius:var(--radius-l);min-width:0;
+  background:var(--danger-soft);border:1px solid var(--danger-line);
+}
+.storage-readonly b{display:block;font-size:13.5px;color:var(--danger)}
+.storage-readonly p{margin:7px 0 0;font-size:12.5px;line-height:1.65;color:var(--ink-2)}
+
+/* ------------------------------------------------------------ 备份列表 */
+.storage-backups{list-style:none;margin:0;padding:0;display:grid;gap:1px}
+.storage-backups li{
+  display:flex;align-items:center;gap:10px;padding:7px 2px;min-width:0;
+  border-bottom:1px solid var(--paper-line);font-size:12.5px;
+}
+.storage-backups li:last-child{border-bottom:0}
+.storage-backup-time{flex:none;font:12px var(--num);color:var(--muted)}
+.storage-backups code{flex:1 1 auto;min-width:0;font-size:12px;color:var(--ink-2);word-break:break-all}
+.storage-backups strong{flex:none;font-weight:600;font-variant-numeric:tabular-nums}
+
+/* ------------------------------------------------------------ 更换位置 */
+.storage-field{display:grid;gap:6px;margin-top:10px}
+.storage-field>label{font-size:12.5px;color:var(--muted)}
+.storage-field-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.storage-field-row input{
+  flex:1 1 220px;min-width:0;padding:8px 11px;font:13px var(--num);color:var(--ink);
+  background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-s);
+}
+.storage-field-row input:focus-visible{outline:2px solid var(--focus-ring);outline-offset:1px}
+.storage-modes{margin:14px 0 0;padding:0;border:0;min-width:0;display:grid;gap:8px}
+.storage-modes legend{padding:0;margin-bottom:7px;font-size:12.5px;color:var(--muted)}
+.storage-modes label{
+  display:flex;align-items:flex-start;gap:9px;padding:10px 12px;min-width:0;cursor:pointer;
+  border-radius:var(--radius-m);background:var(--surface-2);border:1px solid var(--line);
+}
+.storage-modes label:has(input:checked){background:var(--accent-soft);border-color:var(--accent-line)}
+.storage-modes input{margin-top:2px;flex:none}
+.storage-modes span{min-width:0;font-size:13px;color:var(--ink)}
+.storage-modes small{display:block;margin-top:3px;font-size:11.5px;line-height:1.55;color:var(--muted)}
+
+.storage-error{margin:10px 0 0;padding:0;font-size:12.5px;color:var(--danger)}
+.storage-error:empty{display:none;margin:0;padding:0}
+
+/* 更换成功后的重启卡片 */
+.storage-restart{background:var(--accent-soft);border-color:var(--accent-line)}
+.storage-restart h2{color:var(--accent-ink)}
+.storage-restart .storage-note{color:var(--ink-2)}
+
+/* ------------------------------------------------------------ 确认对话框 */
+.storage-dialog{display:grid;gap:10px;min-width:0;max-width:520px}
+.storage-dialog h2{margin:0;font-size:1.12rem}
+.storage-dialog-lead{margin:0;font-size:12px;color:var(--muted)}
+.storage-dialog-path{
+  margin:0;padding:9px 11px;border-radius:var(--radius-s);background:var(--surface-2);
+  border:1px solid var(--line);font:12.5px/1.5 var(--num);word-break:break-all;user-select:all;
+}
+.storage-dialog-list{margin:2px 0 0;padding-left:18px;font-size:12.5px;line-height:1.7;color:var(--ink-2)}
+.storage-dialog-list b{color:var(--ink)}
+.storage-dialog .storage-actions{margin-top:4px;justify-content:flex-end}
+dialog:has(.storage-dialog){max-width:600px}
+
+/* ------------------------------------------------------------ 窄屏 */
+@media(max-width:830px){
+  .storage-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:600px){
+  .storage-card{padding:14px}
+  .storage-metrics{grid-template-columns:1fr}
+  .storage-actions{gap:7px}
+  .storage-btn{flex:1 1 auto;justify-content:center;text-align:center}
+  .storage-field-row input{flex:1 1 100%}
+  .storage-backups li{flex-wrap:wrap;gap:4px 10px}
+  .storage-backups code{flex:1 1 100%;order:3}
+}
+@media(max-width:440px){
+  .storage-path{font-size:12px;padding:9px 10px}
+  .storage-metrics strong{font-size:19px}
+}

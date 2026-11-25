@@ -12,6 +12,7 @@ import { createDialogs } from './dialogs.js';
 import { bindSkins } from './skins.js';
 import { showBoard } from './board.js';
 import { showAiSettings } from './ai-settings.js';
+import { showStorage, STORAGE_PAGE_KEY } from './storage-page.js';
 import { bindProjects } from './projects.js';
 import { bindPipTimer } from './pip.js';
 import { focusSecondsFor } from './plan-now.js';
@@ -164,6 +165,10 @@ function drawMain(editorTask) {
   }
   if (state.page === 'harvest') {
     showHarvest($('#mainContent'), moduleCtx);
+    return;
+  }
+  if (state.page === STORAGE_PAGE_KEY) {
+    showStorage($('#mainContent'), moduleCtx);
     return;
   }
   const body = { calendar: calendarPage, focus: focusPage, activity: activityPage }[state.page](state);
@@ -634,6 +639,10 @@ hydrateIcons();
 if (prefs.get(FOLD_KEY) === '1') setFold(true);
 setPlainFont(prefs.get(FONT_KEY) === 'plain');
 bindSkins();
+// 桌面菜单「数据位置…」派发 workbench:open（detail = 页面 key），在这里接住
+window.addEventListener('workbench:open', (event) => {
+  if (PAGES[event.detail]) gotoPage(event.detail);
+});
 restoreLiveView(state);
 startLive({ onChange: queueLiveRefresh });
 setInterval(() => { tick(); focusChrome.tickCat(); }, 500);
