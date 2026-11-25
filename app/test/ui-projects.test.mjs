@@ -377,6 +377,55 @@ test('T-W4 拖入：没设每日投入的项目默认 30 分钟；5 分钟吸附
   assert.equal(blocks[0].startsAt % 300, 0, `落点应对齐 5 分钟：${blocks[0].startsAt - base14}`);
 });
 
+test('T-W4 审查修复：待办拖到落点就存落点（不被倒推改写），时长超过当天剩余时裁剪', async () => {
+  // 待办拖入走同一条 onDrop 路径。这里验两件事：落点不被改写；时长被裁到「当天剩余」。
+  // 用一个很长的时间轴剩余（拖到 06:00，剩余 18 小时）+ 30 分钟的待办，
+  // 再单独验「剩余不足时裁剪」——用 15 分钟块把末尾占住，让剩余刚好不足。
+  assert.equal(await command({ type: 'createTask', id: 'w4-late-todo', title: '深夜复习', course: '' }), true);
+  await page.goto(`${base}/`);
+  await page.waitFor('!!__wbState.view');
+  await page.click('[data-sidebar-view="tasks"]');
+  await page.waitFor('document.querySelector(\'#pending [data-drag-task="w4-late-todo"]\')');
+
+  const start = await axisStart();
+  const span = await page.evaluate('return document.querySelectorAll("#plannerGrid [data-plan-hour]").length;');
+  // 把 23:00–24:00 占住，剩给待办的只有 06:00 之后那一大段 —— 先验落点
+  assert.equal(await command({ type: 'createTask', id: 'w4-tail', title: '占住末尾', course: '日计划' }), true);
+  assert.equal(await command({ type: 'saveSchedule', block: {
+    id: 'w4-tail-b', taskId: 'w4-tail', startsAt: start + (span - 1) * HOUR, plannedSeconds: HOUR,
+  } }), true);
+  await page.goto(`${base}/`);
+  await page.waitFor('!!__wbState.view');
+  await page.click('[data-sidebar-view="tasks"]');
+  await page.waitFor('document.querySelector(\'#pending [data-drag-task="w4-late-todo"]\')');
+
+  const at10 = start + 4 * HOUR; // 10:00
+  const from = await page.evaluate(`
+    const el = document.querySelector('#pending [data-drag-task="w4-late-todo"]');
+    const r = el.getBoundingClientRect();
+    return [r.x + r.width / 2, r.y + r.height / 2];
+  `);
+  const target = await page.evaluate(`
+    const grid = document.querySelector('#plannerGrid');
+    const hh = document.querySelector('.planner-hour').getBoundingClientRect().height;
+    const first = Number(grid.querySelector('[data-plan-hour]').dataset.planHour);
+    const y = (${at10} - first) * hh / ${HOUR};
+    grid.scrollTop = Math.max(0, y - grid.clientHeight / 2);
+    const layer = document.querySelector('.planner-layer').getBoundingClientRect();
+    return [layer.left + layer.width / 2, layer.top + y];
+  `);
+  await mouse('mousePressed', ...from);
+  await mouse('mouseMoved', ...target);
+  await mouse('mouseReleased', ...target);
+  await page.waitFor(`__wbState.view.scheduled.some((b) => b.taskId === 'w4-late-todo')`);
+  const saved = (await blocksOf('w4-late-todo'))[0];
+  assert.equal(saved.startsAt, at10, `待办落点应是 10:00，实际 ${(saved.startsAt - start) / 60} 分`);
+  assert.equal(saved.startsAt % 300, 0, '落点吸附 5 分钟');
+  assert.equal(saved.plannedSeconds, 1800, '空间足够时按默认 30 分钟');
+  assert.equal(await command({ type: 'removeSchedule', blockId: 'w4-tail-b' }), true);
+  await page.click('[data-sidebar-view="plan"]');
+});
+
 test('T-W4 排进今天：按钮可用，排进第一个空档且不与已有块重叠', async () => {
   // 15 分钟的小目标：任何时刻都还有空档，用例不受跑测试的钟点影响
   const mainTaskId = await seedProject('w4-now', '背雅思词汇', 15);

@@ -119,6 +119,11 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
 
   const toPixels = (seconds) => seconds * hourHeight / HOUR;
   const toSeconds = (pixels) => pixels * HOUR / hourHeight;
+  /**
+   * 起拖阈值（像素）：不小于 4，但也不超过一个吸附步长在当前密度下的像素数。
+   * 紧凑档 32px/小时时 5 分钟只有约 2.67px，写死 4px 会让单步拖不动（要拖两步才吸附一次）。
+   */
+  const dragThreshold = () => Math.max(1, Math.min(4, STEP * hourHeight / HOUR));
 
   function setScale(next, { persist = true } = {}) {
     if (!SCALES.includes(next) || next === hourHeight) return;
@@ -228,19 +233,23 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
   }
 
   /**
-   * 「排进今天」用：从当前时刻（看别的日期时从 06:00）起，第一个放得下 seconds 秒的空档起点。
-   * 起点按 5 分钟吸附、不早于此刻；放不下返回 null（项目卡据此提示「今天排满了」）。
+   * 「排进今天」用：从当前时刻（看别的日期时从 06:00）起，第一个放得下**完整** seconds 秒的空档起点。
+   * 起点按 5 分钟吸附、不早于此刻。
+   * 放不下就返回 null（调用方提示「今天排满了」）——绝不能把 seconds 截短后返回一个起点，
+   * 那会让调用方仍按原时长提交，块溢到次日。
    */
   function nextFreeStart(seconds) {
     if (!view) return null;
-    const wanted = Math.max(QUARTER, Math.min(Math.round(Number(seconds) || DEFAULT_PLAN_SECONDS), end - start));
+    const wanted = Math.max(QUARTER, Math.round(Number(seconds) || DEFAULT_PLAN_SECONDS));
+    // 比整条时间轴还长，今天不可能放下
+    if (wanted > end - start) return null;
     const now = Math.floor(Date.now() / 1000);
     const earliest = view.day === localToday(view.timeZone) ? Math.max(start, Math.ceil(now / STEP) * STEP) : start;
     const spans = view.scheduled
       .map((block) => [block.startsAt, block.startsAt + block.plannedSeconds])
       .filter(([from, to]) => to > start && from < end)
       .sort((a, b) => a[0] - b[0]);
-    // 在空档 [from, to) 里找第一个吸到 5 分钟、且整段放得下的起点
+    // 在空档 [from, to) 里找第一个吸到 5 分钟、且整段（wanted）放得下的起点
     const fitIn = (from, to) => {
       const at = Math.max(earliest, Math.ceil(from / STEP) * STEP);
       return at + wanted <= Math.min(to, end) ? at : null;
@@ -279,13 +288,21 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     return Math.min(max, Math.max(Math.min(minimum, visibleDuration), visibleDuration + delta));
   }
   /**
-   * 上沿：结束时刻不动，只改开始时间。早不过时间轴起点（06:00）；
-   * 晚不过「原时长与 15 分钟取小」——原本就短于 15 分钟的块以原时长为下限。
+   * 上沿可移动的范围：
+   * - 下限取 min(时间轴起点, 块原开始时刻)。块本来就早于 06:00 时（例如 05:30–07:00），
+   *   下限是它自己的开始时刻，绝不能因为限幅把开始时刻往后推 —— 否则「↑ 提前」会变成推迟。
+   * - 上限是「结束时刻前留够 15 分钟（原本更短就留原时长）」。
    */
-  function startOf(block, delta) {
+  function startBounds(block) {
     const finishes = block.startsAt + block.plannedSeconds;
-    const earliest = start;
-    const latest = finishes - Math.min(QUARTER, block.plannedSeconds);
+    return {
+      earliest: Math.min(start, block.startsAt),
+      latest: finishes - Math.min(QUARTER, block.plannedSeconds),
+    };
+  }
+  /** 上沿：结束时刻不动，只改开始时间。↑/向上拖只会让开始更早或不变。 */
+  function startOf(block, delta) {
+    const { earliest, latest } = startBounds(block);
     return Math.min(latest, Math.max(earliest, block.startsAt + delta));
   }
 
@@ -377,13 +394,12 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     const layer = grid.querySelector('.planner-layer').getBoundingClientRect();
     const inside = x >= rect.left && x < rect.right && y >= Math.max(rect.top, layer.top)
       && y < Math.min(rect.bottom, layer.bottom);
-    // 从右栏拖入的项目要放下整段 dailyMinutes，所以按它算所需空间，而不是待办的 15 分钟；
-    // 长度夹在 15 分钟与当天剩余之间（时间轴不足 15 分钟时哪儿都放不下）。
+    // 落点就是用户松手的位置（吸附到 5 分钟），只用「至少 15 分钟」保证放得下；
+    // 时长在下面按 min(计划时长, 当天剩余) 裁剪 —— 不能拿完整时长倒推最晚起点，
+    // 那会把用户的落点改掉（23:40 拖入 47 分钟的项目会变成 23:13）。
     const room = end - start;
-    const required = drag.external
-      ? Math.min(Math.max(drag.wanted, QUARTER), room)
-      : block ? block.plannedSeconds : QUARTER;
-    drag.startsAt = inside && required <= room && room >= QUARTER
+    const required = drag.external ? QUARTER : block ? block.plannedSeconds : QUARTER;
+    drag.startsAt = inside && required <= room
       ? Math.max(start, Math.min(end - required, start + snap(toSeconds(y - layer.top - grab))))
       : undefined;
     if (drag.float) {
@@ -401,6 +417,7 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
       return;
     }
     if (!block) {
+      // 项目按计划时长排，但不超过当天剩余；至少留 15 分钟（时间轴不足 15 分钟时上面已经放不下）
       drag.seconds = drag.external
         ? Math.max(QUARTER, Math.min(drag.wanted, end - drag.startsAt))
         : Math.min(DEFAULT_PLAN_SECONDS, end - drag.startsAt);
@@ -442,7 +459,7 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     if (drag?.pointerId !== event.pointerId) return;
     drag.x = event.clientX;
     drag.y = event.clientY;
-    drag.moved ||= Math.hypot(drag.x - drag.initialX, drag.y - drag.initialY) >= 4;
+    drag.moved ||= Math.hypot(drag.x - drag.initialX, drag.y - drag.initialY) >= dragThreshold();
     if (!drag.moved) return;
     preview();
     if (!drag.frame) drag.frame = requestAnimationFrame(scrollWhileDragging);
@@ -452,7 +469,7 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     if (!drag?.external || drag.pointerId !== event.pointerId) return;
     drag.x = event.clientX;
     drag.y = event.clientY;
-    drag.moved ||= Math.hypot(drag.x - drag.initialX, drag.y - drag.initialY) >= 4;
+    drag.moved ||= Math.hypot(drag.x - drag.initialX, drag.y - drag.initialY) >= dragThreshold();
     if (!drag.moved) return;
     preview();
     if (!drag.frame) drag.frame = requestAnimationFrame(scrollWhileDragging);

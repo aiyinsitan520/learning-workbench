@@ -260,6 +260,116 @@ test('390px 宽：密度切换与手柄可见可用，不横向溢出', async ()
   await page.setViewport(...viewport);
 });
 
+// ---------------------------------------------------------------- 审查修复回归（T-W2/T-W4）
+
+/** 按绝对秒数造一个块（可以早于 06:00，用来验上沿下限）。 */
+const seedAt = async (id, startsAt, seconds) => {
+  assert.equal(await page.evaluate(`
+    const post = (command) => fetch('/api/command', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command }) }).then((r) => r.ok);
+    return await post({ type: 'createTask', id: '${id}', title: '${id}', course: '日计划' })
+      && await post({ type: 'saveSchedule', block: { id: '${id}-b', taskId: '${id}', startsAt: ${startsAt}, plannedSeconds: ${seconds} } });
+  `), true);
+  await page.goto(`${base}/`);
+  await page.waitFor(`document.querySelector('[data-resize-plan-start="${id}-b"]')`);
+  await page.click('[data-sidebar-view="plan"]');
+};
+
+test('审查修复：05:30–07:00 的块按 ↑ 只会更早或不变，不会被限幅推到 06:00 之后', async () => {
+  const at = await axisStart();
+  const five30 = at - 1800; // 06:00 往前半小时
+  await seedAt('w2-early', five30, 5400); // 05:30–07:00
+  assert.equal((await block('w2-early-b')).startsAt, five30, '前提：块开始于 05:30');
+
+  // 键盘 ↑：块本来就在时间轴起点之前，下限就是它自己 → 开始时间不变（旧实现会变成 06:00）
+  const focusStart = 'document.querySelector(\'[data-resize-plan-start="w2-early-b"]\').focus(); return true;';
+  await page.evaluate(focusStart);
+  await key('ArrowUp');
+  await new Promise((r) => setTimeout(r, 300));
+  const afterUp = await block('w2-early-b');
+  assert.equal(afterUp.startsAt, five30, `↑ 不得把开始时间往后推，实际 ${(afterUp.startsAt - five30) / 60} 分`);
+  assert.equal(afterUp.plannedSeconds, 5400, '没推动就什么都不改');
+
+  // ↓ 可以推后（上限是「结束前留 15 分钟」）
+  await page.evaluate(focusStart);
+  await key('ArrowDown');
+  await new Promise((r) => setTimeout(r, 400));
+  const afterDown = await block('w2-early-b');
+  assert.equal(afterDown.startsAt, five30 + 300,
+    `↓ 应推后 5 分钟：实际 ${(afterDown.startsAt - five30) / 60} 分，时长 ${afterDown.plannedSeconds}`);
+  assert.equal(afterDown.plannedSeconds, 5100);
+
+  // 拖动上沿向上：同样不得把开始时间往后推
+  await seedAt('w2-early2', five30, 5400);
+  const from = await point('[data-resize-plan-start="w2-early2-b"]');
+  await dragTo(from, [from[0], from[1] - 48 / 3]); // 20 分钟
+  await new Promise((r) => setTimeout(r, 300));
+  const dragged = await block('w2-early2-b');
+  assert.ok(dragged.startsAt <= five30, `向上拖不得把开始时间往后推：${dragged.startsAt - five30}s`);
+});
+
+test('审查修复：47 分钟项目拖到 23:40 保存 23:40–24:00，落点不被改写且吸附 5 分钟', async () => {
+  const at = await axisStart();
+  const axisHours = await page.evaluate('return document.querySelectorAll("#plannerGrid [data-plan-hour]").length;');
+  const late = at + (axisHours - 1) * HOUR + 40 * 60; // 23:40（时间轴最后一小时 +40 分）
+  assert.equal(await page.evaluate(`
+    const r = await fetch('/api/command', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: { type: 'createProject', id: 'w4-trim', title: '深夜读书',
+        startDay: __wbState.view.day, dueDay: null, dailyMinutes: 47, mainTaskId: 'w4-trim-main' } }) });
+    return (await r.json()).ok;
+  `), true);
+  await page.goto(`${base}/`);
+  await page.waitFor('document.querySelector(\'#projects [data-drag-project="w4-trim"]\')');
+
+  const from = await point('#projects [data-drag-project="w4-trim"]');
+  const to = await page.evaluate(`
+    const grid = document.querySelector('#plannerGrid');
+    const hh = document.querySelector('.planner-hour').getBoundingClientRect().height;
+    const from = Number(grid.querySelector('[data-plan-hour]').dataset.planHour);
+    const y = (${late} - from) * hh / ${HOUR};
+    grid.scrollTop = Math.max(0, y - grid.clientHeight / 2);
+    const layer = document.querySelector('.planner-layer').getBoundingClientRect();
+    return [layer.left + layer.width / 2, layer.top + y];
+  `);
+  await mouse('mousePressed', ...from);
+  await mouse('mouseMoved', ...to);
+  await mouse('mouseReleased', ...to);
+  await page.waitFor(`__wbState.view.scheduled.some((b) => b.taskId === 'w4-trim-main')`);
+  const saved = (await page.evaluate(`return __wbState.view.scheduled.filter((b) => b.taskId === 'w4-trim-main');`))[0];
+  assert.equal(saved.startsAt, late, `落点应是 23:40，实际 ${(saved.startsAt - at) / 60} 分`);
+  assert.equal(saved.startsAt % 300, 0, '落点吸附到 5 分钟');
+  assert.equal(saved.startsAt + saved.plannedSeconds, at + axisHours * HOUR, '结束于时间轴末尾（24:00）');
+  assert.equal(saved.plannedSeconds, 20 * 60, '时长裁剪为当天剩余 20 分钟');
+});
+
+test('审查修复：每日 1200 分钟的项目点「排进今天」不放不下就提示，不会溢到次日', async () => {
+  // 1200 分钟 = 20 小时 > 时间轴 18 小时，今天不可能放下
+  assert.equal(await page.evaluate(`
+    const r = await fetch('/api/command', { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: { type: 'createProject', id: 'w4-huge', title: '超长项目',
+        startDay: __wbState.view.day, dueDay: null, dailyMinutes: 1200, mainTaskId: 'w4-huge-main' } }) });
+    return (await r.json()).ok;
+  `), true);
+  await page.goto(`${base}/`);
+  await page.waitFor('document.querySelector(\'#projects [data-project-card="w4-huge"] [data-project-plan-now]\')');
+  const before = await page.evaluate(`return __wbState.view.scheduled.filter((b) => b.taskId === 'w4-huge-main').length;`);
+  await page.click('#projects [data-project-card="w4-huge"] [data-project-plan-now]');
+  await new Promise((r) => setTimeout(r, 500));
+  const after = await page.evaluate(`return __wbState.view.scheduled.filter((b) => b.taskId === 'w4-huge-main');`);
+  assert.equal(after.length, before, '放不下就不建块');
+  assert.match(await page.text('#toast'), /今天排满了/);
+});
+
+test('审查修复：紧凑档 32px 下拖 3px 就能吸附一步（阈值不超过一个吸附步长）', async () => {
+  await clickScale(32);
+  const at = await seed('w2-tight', 10, HOUR); // 16:00–17:00
+  // 32px/小时时 5 分钟 ≈ 2.67px，3px 已经够触发拖动
+  const from = await point('[data-resize-plan-start="w2-tight-b"]');
+  await dragTo(from, [from[0], from[1] + 3]);
+  await settled('w2-tight-b', at + 300, 3300);
+  await clickScale(48);
+});
+
 test('六套皮肤下手柄抓手线有颜色、光标正确、密度按钮文字随令牌变', async () => {
   await page.evaluate(`localStorage.setItem('workbench.skin', 'candy'); localStorage.setItem('workbench.skin-choice', 'candy'); return true;`);
   await page.goto(`${base}/`);
