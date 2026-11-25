@@ -109,6 +109,8 @@ function cardMarkup(p, { today = true } = {}) {
     ${target ? `<div class="track proj-track"><i style="width:${pct}%"></i></div>` : '<div class="proj-track-empty"></div>'}
     <p class="proj-meta">今天专注 ${focused} / ${p.dailyMinutes ? p.dailyMinutes : '—'} 分钟${p.dailyMinutes ? '' : '（未设每日目标）'}</p>
     <p class="proj-note" title="${esc(note)}">${note ? `${esc(noteLead)}：${esc(note)}` : '还没有进展记录'}</p>
+    ${p.harvestCount ? `<button type="button" class="harvest-chip proj-harvest" data-project-harvest="${esc(p.id)}"
+      title="看这个项目关联的收获">收获 ${p.harvestCount}</button>` : ''}
     <div class="proj-actions">
       <button type="button" class="primary proj-start" data-action="start" data-focus-task="${esc(p.mainTaskId)}">开始专注</button>
       ${canPlan ? `<button type="button" class="light proj-plan" data-project-plan-now="${esc(p.id)}"
@@ -327,13 +329,22 @@ function onClick(event) {
   // 只处理本模块的按钮；「开始专注」交给外壳的 data-action 分派。
   const mine = ['projectNew', 'projectNote', 'projectMenu', 'projectEdit', 'projectComplete',
     'projectArchive', 'projectReopen', 'projectCancel', 'projectConfirm', 'projectDue', 'projectDaily',
-    'projectPlanNow'];
+    'projectPlanNow', 'projectHarvest'];
   const key = mine.find((name) => d[name] != null);
   if (!key) return;
 
   if (key === 'projectNew') { state.openMenu = null; openForm(); return; }
   if (key === 'projectCancel') { ctx.closeDialog(); return; }
   if (key === 'projectPlanNow') { void planNow(d.projectPlanNow); return; }
+  // 「收获 N」跳到按该项目筛选的收获页（T-W8b）：先切页，页面挂上后再发筛选事件
+  if (key === 'projectHarvest') {
+    const projectId = d.projectHarvest;
+    ctx.gotoPage('harvest');
+    setTimeout(() => {
+      document.dispatchEvent(new CustomEvent('workbench:harvest-filter', { detail: { project: projectId } }));
+    }, 0);
+    return;
+  }
   if (key === 'projectNote') {
     const project = findProject(d.projectNote);
     if (project) { state.openMenu = null; ctx.openTask(project.mainTaskId); }

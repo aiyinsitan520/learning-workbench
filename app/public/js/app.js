@@ -10,14 +10,14 @@ import { bindToolbar } from './nav.js';
 import { bindFocusChrome, remainingSeconds } from './focus.js';
 import { createDialogs } from './dialogs.js';
 import { bindSkins } from './skins.js';
-import { showBoard } from './board.js';
+import { showBoard, refreshBoard } from './board.js';
 import { showAiSettings } from './ai-settings.js';
 import { showStorage, STORAGE_PAGE_KEY } from './storage-page.js';
 import { bindProjects } from './projects.js';
 import { bindPipTimer } from './pip.js';
 import { focusSecondsFor } from './plan-now.js';
 import { bindUpdates } from './update.js';
-import { showHarvest, openHarvestCapture } from './harvest.js';
+import { showHarvest, openHarvestCapture, refreshHarvest } from './harvest.js';
 import { startLive, openNoteHasDraft, refreshOpenNote, restoreLiveView } from './live.js';
 import {
   PAGES, LEGACY_PAGES, activityPage, calendarPage, focusPage, mmss, renderDone,
@@ -187,6 +187,9 @@ function draw() {
   document.body.dataset.page = state.page;
   $('#contextPage').textContent = PAGES[state.page];
   toolbar.select(state.page);
+  // 「收获」上有待复习的卡片时亮小红点（T-W8b）
+  const harvestDot = $('[data-harvest-dot]');
+  if (harvestDot) harvestDot.hidden = !(Number(state.view.harvestDue) > 0);
 
   const editorTask = findTask(state.editorTaskId) ?? findTask(state.selectedTaskId);
   drawSidebar(editorTask?.id);
@@ -281,6 +284,11 @@ function queueLiveRefresh() {
   liveTimer = setTimeout(async () => {
     if (liveBlocked()) { queueLiveRefresh(); return; }
     if (await reload(() => !liveBlocked()) === false || liveBlocked()) { queueLiveRefresh(); return; }
+    // T-W8b（含 T-W1 遗留）：每日维护看板与收获页跟着 live change 重读；有编辑中的内容时跳过，等下一次。
+    if (!liveBlocked()) {
+      if (state.page === 'review') refreshBoard();
+      else if (state.page === 'harvest') refreshHarvest();
+    }
     try {
       if (await refreshOpenNote(api, state, noteReloadBlocked) === 'defer') queueLiveRefresh();
     } catch { /* 连接恢复时由下一次变化或重连补上 */ }

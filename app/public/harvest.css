@@ -1,3 +1,10 @@
+/* 顶栏「收获」按钮上的小红点：有待复习的卡片时出现（T-W8b）。用强调色，不写颜色值。 */
+.toolbar .tool-dot{
+  position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;
+  background:var(--danger);box-shadow:0 0 0 2px var(--bg-header)
+}
+.toolbar .tool-dot[hidden]{display:none}
+
 /* 收获页与采集弹窗共用工作台的皮肤令牌。 */
 .harvest-page,.harvest-dialog{min-width:0;overflow-wrap:anywhere}
 .harvest-header,.harvest-tools,.harvest-cardhead,.harvest-cardfoot{
@@ -19,30 +26,91 @@ button.harvest-chip:hover,button.harvest-chip[aria-pressed="true"]{
   border-color:var(--accent-line);background:var(--accent-soft);color:var(--accent-ink)
 }
 .harvest-chip small{margin-left:3px;font-size:inherit}
+/* 标签颜色：按标签名哈希到 6 个令牌色变体，换皮肤跟着变，不写颜色值。 */
+.harvest-chip.tone-0{border-color:var(--accent-line);background:var(--accent-soft);color:var(--accent-ink)}
+.harvest-chip.tone-1{border-color:var(--line-strong);background:var(--surface-3);color:var(--ink-2)}
+.harvest-chip.tone-2{border-color:var(--accent-line);background:var(--hover);color:var(--ink-2)}
+.harvest-chip.tone-3{border-color:var(--line);background:var(--surface-2);color:var(--accent-ink)}
+.harvest-chip.tone-4{border-color:var(--accent-line);background:var(--surface-3);color:var(--accent-ink)}
+.harvest-chip.tone-5{border-color:var(--line);background:var(--toolbar-bg);color:var(--ink-2)}
+/* 筛选栏：星标 / 待复习 / 按项目 */
+.harvest-filters{display:flex;align-items:end;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.harvest-projectfilter{flex:0 1 200px;min-width:140px}
 .harvest-page [data-harvest-status]:not(:empty){margin:9px 0}
 .harvest-list{display:grid;gap:var(--gap);margin-top:10px}
 .harvest-card{
   min-width:0;padding:16px 18px;border:1px solid var(--line);border-radius:var(--radius-m);
   background:var(--surface);color:var(--ink);box-shadow:var(--shadow-1)
 }
+.harvest-card.starred{border-color:var(--accent-line);box-shadow:var(--shadow-2)}
 .harvest-cardhead{align-items:baseline}
-.harvest-cardhead h2{font-size:17px;font-weight:600;color:var(--ink)}
+.harvest-cardhead h2{font-size:17px;font-weight:600;color:var(--ink);min-width:0;flex:1 1 auto}
+.harvest-cardbadges{display:flex;align-items:center;gap:8px;flex:none}
 .harvest-cardhead time{color:var(--muted);font:12px var(--num)}
-.harvest-conclusion{margin-top:9px;white-space:pre-wrap}
-.harvest-points,.harvest-empty ol{margin:8px 0 0;padding-inline-start:1.5em;color:var(--ink-2)}
+/* 星标：实心 ★ 用强调色，空心 ☆ 用弱化色 */
+.harvest-star{
+  width:26px;height:26px;border-radius:var(--radius-xs);color:var(--faint);
+  font-size:17px;line-height:1;transition:color .15s ease,background-color .15s ease
+}
+.harvest-star:hover{background:var(--surface-3);color:var(--accent-ink)}
+.harvest-star[aria-pressed="true"]{color:var(--accent);background:var(--accent-soft)}
+.harvest-conclusion{
+  margin-top:9px;padding-inline-start:10px;border-inline-start:3px solid var(--accent-line);
+  color:var(--ink);font-size:14px;font-weight:600;white-space:pre-wrap
+}
+.harvest-points,.harvest-empty ol{margin:8px 0 0;padding-inline-start:0;list-style:none;color:var(--ink-2)}
 .harvest-points li+li,.harvest-empty li+li{margin-top:4px}
+.harvest-points li,.harvest-todos li{
+  display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap;padding:3px 0
+}
+.harvest-points li::before{content:"·";color:var(--accent);font-weight:700;flex:none}
+.harvest-rowtext{
+  flex:1 1 150px;min-width:0;cursor:text;border-radius:var(--radius-xs);padding:1px 3px;
+  transition:background-color .15s ease
+}
+.harvest-rowtext:hover,.harvest-rowtext:focus-visible{background:var(--surface-3)}
+.harvest-row.done .harvest-rowtext{color:var(--muted)}
+.harvest-rowinput{
+  flex:1 1 150px;min-width:0;padding:3px 6px;border:1px solid var(--accent-line);
+  border-radius:var(--radius-xs);background:var(--surface-2);color:var(--ink);font:inherit
+}
+.harvest-rowtools{display:flex;gap:2px;flex:none;opacity:0;transition:opacity .15s ease}
+.harvest-points li:hover .harvest-rowtools,.harvest-todos li:hover .harvest-rowtools,
+.harvest-rowtools:focus-within{opacity:1}
+.harvest-mini{
+  width:22px;height:22px;border-radius:var(--radius-xs);color:var(--muted);
+  font-size:12px;line-height:1
+}
+.harvest-mini:hover{background:var(--surface-3);color:var(--accent-ink)}
+.harvest-mini.danger:hover{background:var(--danger-soft);color:var(--danger)}
+.harvest-expand{margin-top:6px;font-size:12px}
+/* 卡片图片：缩略图一行，点开原图 */
+.harvest-images{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.harvest-thumb{
+  display:block;width:84px;height:84px;border-radius:var(--radius-s);overflow:hidden;
+  border:1px solid var(--line);background:var(--surface-2)
+}
+.harvest-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.harvest-thumb:hover{border-color:var(--accent-line)}
+/* 关联标签与复习开关 */
+.harvest-links{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px}
+.harvest-chip.joined{border-style:dashed;color:var(--accent-ink)}
 .harvest-todos{margin-top:12px;padding:10px 12px;border-radius:var(--radius-s);background:var(--surface-2)}
 .harvest-todos ul{margin:5px 0 0;padding:0;list-style:none}
-.harvest-todos li{
-  display:flex;align-items:center;justify-content:space-between;gap:6px 14px;flex-wrap:wrap;padding:4px 0
-}
 .harvest-todos li+li{border-top:1px solid var(--line)}
 .harvest-todos li>span{flex:1 1 150px;min-width:0}
+.harvest-rowactions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .harvest-todos s,.harvest-joined{color:var(--muted)}
 .harvest-joined{font-size:12px}
 .harvest-cardfoot{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
 .harvest-cardfoot .harvest-actions{margin-inline-start:auto}
+.harvest-source{font-size:12px;color:var(--accent-ink);text-decoration:underline;text-underline-offset:2px}
 .harvest-more{margin-top:12px}
+/* 复习模式 */
+.harvest-reviewtop{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.harvest-review .review-card{margin-top:10px;min-height:120px}
+.harvest-hidden{margin-top:14px;padding:18px 0;text-align:center;border:1px dashed var(--line);
+  border-radius:var(--radius-s)}
 .harvest-field{display:grid;gap:3px;min-width:0;color:var(--ink-2);font-size:13px}
 .harvest-field :is(input,textarea,select){
   display:block;width:100%;min-width:0;padding:7px 9px;border:1px solid var(--line-strong);
@@ -66,6 +134,8 @@ dialog:has(.harvest-dialog){max-width:650px}
   .harvest-card{padding:12px}
   .harvest-cardfoot .harvest-actions{margin-inline-start:0}
   .harvest-fields{grid-template-columns:minmax(0,1fr)}
+  .harvest-projectfilter{flex:1 1 100%}
+  .harvest-rowtools{opacity:1}
   dialog:has(.harvest-dialog){padding-inline:16px}
 }
 @media(prefers-reduced-motion:reduce){

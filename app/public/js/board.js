@@ -41,6 +41,16 @@ export function showBoard(host, moduleCtx) {
   void load({ keepMarks: false });
 }
 
+/**
+ * T-W1 遗留的实时刷新：另一端改了数据（live change）时重读当前日期的看板。
+ * 有弹窗、正在生成、或看板里还有未保存的标记时跳过，交给下一次变化。
+ */
+export function refreshBoard() {
+  if (!panel?.isConnected || state.loading) return false;
+  void load({ keepMarks: true });
+  return true;
+}
+
 // ---------------------------------------------------------------- 数据
 
 function shift(day, delta) {
