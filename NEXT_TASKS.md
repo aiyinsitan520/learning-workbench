@@ -319,3 +319,4 @@ Codex 队列 W1 → W3 → W8a → W5 → W6；DSH 队列 W2 → W4 → W1b → 
 进行中｜DSH｜T-W1b｜app/public/js/storage-page.js、app/public/storage.css、app/public/index.html、app/public/js/app.js、app/public/js/views.js、app/public/js/ai-settings.js、app/test/ui-storage.test.mjs｜2026-11-24T16:52:00-08:00
 进行中｜DSH｜T-W8b｜app/public/js/harvest.js、app/public/harvest.css、app/public/js/projects.js、app/public/projects.css、app/public/js/board.js（仅刷新入口）、app/test/ui-harvest.test.mjs｜2026-11-25T00:55:58+00:00
 验收通过｜Claude｜T-W5｜2026-11-24：Codex 提交 704d88e，隔离副本 full PASS（服务 130、浏览器 93）；Claude 抽查导出安全（符号链接/联接点与 nlink 拒绝、路径穿越、改过与清单外文件不动、锁）并复跑 obsidian 8/8。真实 Obsidian 客户端未验证。DSH 同时认领 T-W1b 与 T-W8b（文件基本不相交，接受）。
+审查｜Codex（只读）｜T-W2/T-W4｜2026-11-24：3 个挡合并（上沿 ↑ 对 06:00 前旧块反向推迟；项目拖入 23:40 被倒推成 23:13；排进今天找空档与提交时长不一致致跨日）+ 紧凑档起拖阈值建议。退回 DSH T-W4 会话（第 1 次），只改 planner.js 与两份 UI 测试。
