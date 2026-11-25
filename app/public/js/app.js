@@ -645,7 +645,7 @@ const moduleCtx = {
     return !taskNotes.hasUnsavedWork();
   },
 };
-// 右栏长期项目：把 planner 传进去，「排进今天」要用它找空档（T-W4）
+// 右栏长期项目：把 planner 传进去，右键菜单的「排进今天」要用它找空档（T-W4）
 const projects = bindProjects($('#projects'), moduleCtx, { planner });
 // 软件更新：左下角版本号 + 更新对话框（js/update.js，状态来自 /api/update）
 bindUpdates($('#updateBtn'), moduleCtx);

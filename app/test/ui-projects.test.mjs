@@ -80,6 +80,31 @@ const blocksOf = (taskId) => page.evaluate(`
     .map((b) => ({ id: b.id, startsAt: b.startsAt, plannedSeconds: b.plannedSeconds, title: b.task.title }))
     .sort((a, b) => a.startsAt - b.startsAt);
 `);
+/** 在元素中点按鼠标右键，然后点菜单里的某一项（卡片上已经没有「排进今天」按钮，走右键菜单）。 */
+async function rightClickChoose(selector, label) {
+  const pt = await page.evaluate(`
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (!el) return null;
+    el.scrollIntoView({ block: 'center' });
+    const r = el.getBoundingClientRect();
+    return [r.left + r.width / 2, r.top + r.height / 2];
+  `);
+  assert.ok(pt, `右键目标不存在：${selector}`);
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pt[0], y: pt[1] });
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: pt[0], y: pt[1], button: 'right', buttons: 2, clickCount: 1 });
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pt[0], y: pt[1], button: 'right', buttons: 0, clickCount: 1 });
+  await page.waitFor('document.querySelector(".ctx-menu .ctx-item")');
+  const ok = await page.evaluate(`
+    const row = [...document.querySelectorAll('.ctx-menu .ctx-item')]
+      .find((el) => el.querySelector('.ctx-label').textContent.trim() === ${JSON.stringify(label)});
+    if (!row) return false;
+    row.click();
+    return true;
+  `);
+  assert.ok(ok, `右键菜单里没有「${label}」`);
+  await new Promise((r) => setTimeout(r, 300));
+}
+
 /**
  * 「排进今天」从当前时刻起找空档，所以用例会随跑测试的钟点变化（半夜跑就没空档了）。
  * 把页面里的 Date.now 固定到当天 08:00（时间轴 06:00 往后 2 小时），用例就与真实钟点无关。
@@ -377,6 +402,56 @@ test('T-W4 拖入：没设每日投入的项目默认 30 分钟；5 分钟吸附
   assert.equal(blocks[0].startsAt % 300, 0, `落点应对齐 5 分钟：${blocks[0].startsAt - base14}`);
 });
 
+test('T-W4b 整卡拖动：抓卡片标题直接拖进时间轴，不必先找左上角的拖动柄', async () => {
+  const mainTaskId = await seedProject('w4-whole', '整卡拖入实验', 45);
+  const at = (await axisStart()) + 5 * HOUR; // 11:00
+  const to = await pointAt(at);
+  // 右栏会滚动，列表也随时可能重排：抓之前先确认这个坐标真的落在本项目的卡上（不是隔壁卡）。
+  const grab = await page.evaluate(`
+    const card = document.querySelector('#projects [data-project-card="w4-whole"]');
+    const name = card?.querySelector('.proj-name');
+    if (!name) return null;
+    name.scrollIntoView({ block: 'center' });
+    const r = name.getBoundingClientRect();
+    const x = r.x + r.width / 2;
+    const y = r.y + r.height / 2;
+    return [x, y, card.contains(document.elementFromPoint(x, y))];
+  `);
+  assert.ok(grab && grab[2], `抓取点应落在项目卡上：${JSON.stringify(grab)}`);
+  const from = [grab[0], grab[1]];
+  await mouse('mousePressed', ...from);
+  await mouse('mouseMoved', ...to);
+  const float = await page.evaluate(`
+    const el = document.querySelector('.planner-float');
+    return el ? { hidden: el.hidden, text: el.textContent.trim() } : null;
+  `);
+  assert.ok(float, '整卡拖动应挂出跟随指针的小卡片');
+  assert.match(String(float.text), /整卡拖入实验 · 45 分钟/, '小卡片带项目名与每日投入时长');
+  const preview = await page.evaluate(`
+    const el = document.querySelector('#plannerGrid .planner-preview');
+    return el ? { hidden: el.hidden, top: el.style.top, height: el.style.height } : null;
+  `);
+  assert.ok(preview && !preview.hidden, '进了时间轴应换成轴上的预览块');
+  const dim = await page.evaluate(`
+    const card = document.querySelector('#projects [data-project-card="w4-whole"]');
+    return card ? card.classList.contains('proj-dragging') : null;
+  `);
+  assert.equal(dim, true, '原卡片压暗，提示拖出去的是副本');
+  await mouse('mouseReleased', ...to);
+  await new Promise((r) => setTimeout(r, 400));
+  const blocks = await blocksOf(mainTaskId);
+  assert.equal(blocks.length, 1, '松手应建出一个块');
+  assert.equal(blocks[0].startsAt, at, '落在松手的 11:00');
+  assert.equal(blocks[0].plannedSeconds, 2700);
+  assert.equal(await page.count('#projects [data-project-card="w4-whole"]'), 1, '项目卡仍在（复制，不移走）');
+  assert.equal(await page.count('#projects .proj-card.proj-dragging'), 0, '松手后压暗要复原');
+  // 只点一下（没移动）不应建块，也不该留下压暗
+  await mouse('mousePressed', ...from);
+  await mouse('mouseReleased', ...from);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal((await blocksOf(mainTaskId)).length, 1, '只点一下不应建块');
+});
+
 test('T-W4 审查修复：待办拖到落点就存落点（不被倒推改写），时长超过当天剩余时裁剪', async () => {
   // 待办拖入走同一条 onDrop 路径。这里验两件事：落点不被改写；时长被裁到「当天剩余」。
   // 用一个很长的时间轴剩余（拖到 06:00，剩余 18 小时）+ 30 分钟的待办，
@@ -402,6 +477,8 @@ test('T-W4 审查修复：待办拖到落点就存落点（不被倒推改写）
   const at10 = start + 4 * HOUR; // 10:00
   const from = await page.evaluate(`
     const el = document.querySelector('#pending [data-drag-task="w4-late-todo"]');
+    // 待办列表会滚动：先把它滚进可视区，否则坐标落到列表外、拖不起来
+    el.scrollIntoView({ block: 'nearest' });
     const r = el.getBoundingClientRect();
     return [r.x + r.width / 2, r.y + r.height / 2];
   `);
@@ -426,7 +503,7 @@ test('T-W4 审查修复：待办拖到落点就存落点（不被倒推改写）
   await page.click('[data-sidebar-view="plan"]');
 });
 
-test('T-W4 排进今天：按钮可用，排进第一个空档且不与已有块重叠', async () => {
+test('T-W4 排进今天：卡片上没有按钮，走右键菜单排进第一个空档且不与已有块重叠', async () => {
   // 15 分钟的小目标：任何时刻都还有空档，用例不受跑测试的钟点影响
   const mainTaskId = await seedProject('w4-now', '背雅思词汇', 15);
   // 把页面里的「现在」钉在当天 08:00（时间轴 06:00 起第 2 小时），半夜跑用例也还有空档
@@ -436,8 +513,8 @@ test('T-W4 排进今天：按钮可用，排进第一个空档且不与已有块
   const before = await page.evaluate(`
     return __wbState.view.scheduled.map((b) => [b.startsAt, b.startsAt + b.plannedSeconds]);
   `);
-  assert.equal(await page.count('#projects [data-project-card="w4-now"] [data-project-plan-now]'), 1, '项目卡应有「排进今天」');
-  await page.click('#projects [data-project-card="w4-now"] [data-project-plan-now]');
+  assert.equal(await page.count('#projects [data-project-plan-now]'), 0, '卡片上不该再有「排进今天」按钮');
+  await rightClickChoose('#projects [data-project-card="w4-now"]', '排进今天');
   await page.waitFor(`__wbState.view.scheduled.some((b) => b.taskId === '${mainTaskId}')`);
   const blocks = await blocksOf(mainTaskId);
   assert.equal(blocks.length, 1, '「排进今天」应排出一个块');
@@ -447,7 +524,7 @@ test('T-W4 排进今天：按钮可用，排进第一个空档且不与已有块
   assert.ok(blocks[0].startsAt >= fakeNow, `起点不应早于此刻：${blocks[0].startsAt - fakeNow}s`);
   assert.match(await page.text('#toast'), /已排进今天/, '有成功提示');
   // 再排一次：落在后面的空档，不压在前一个上
-  await page.click('#projects [data-project-card="w4-now"] [data-project-plan-now]');
+  await rightClickChoose('#projects [data-project-card="w4-now"]', '排进今天');
   await page.waitFor(`__wbState.view.scheduled.filter((b) => b.taskId === '${mainTaskId}').length === 2`);
   const two = await blocksOf(mainTaskId);
   assert.ok(two[1].startsAt >= two[0].startsAt + two[0].plannedSeconds, '第二块不压在第一块上');
@@ -470,7 +547,7 @@ test('T-W4 排进今天：今天排满时提示「今天排满了」', async () 
   } }), true);
   await page.goto(`${base}/`);
   await page.waitFor(`document.querySelector('#projects [data-project-card="w4-now"]')`);
-  await page.click('#projects [data-project-card="w4-now"] [data-project-plan-now]');
+  await rightClickChoose('#projects [data-project-card="w4-now"]', '排进今天');
   await new Promise((r) => setTimeout(r, 400));
   assert.match(await page.text('#toast'), /今天排满了/, '排满时提示今天排满了');
   assert.equal(await page.count(`#plannerGrid [data-block="w4-full-block"]`), 1);
@@ -489,38 +566,34 @@ test('T-W4 已完成 / 归档的项目不可拖，也没有「排进今天」', 
   await page.goto(`${base}/`);
   await page.waitFor('!!__wbState.view');
   assert.equal(await page.count('#projects [data-drag-project="w4-drag"]'), 0, '归档后没有拖动柄');
-  assert.equal(await page.count('#projects [data-project-plan-now="w4-drag"]'), 0, '归档后没有「排进今天」');
+  assert.equal(await page.count('#projects [data-project-plan-now]'), 0, '卡片上不再有「排进今天」按钮');
 });
 
-test('T-W4 390px：项目卡与「排进今天」可用、不横向溢出', async () => {
+test('T-W4 390px：项目卡不横向溢出、拖动柄仍可用（卡片上没有排进今天按钮）', async () => {
   await seedProject('w4-narrow', '练口语 15 分钟', 15);
-  // 同前面的「排进今天」用例：把「现在」钉在 08:00，半夜跑也有空档
-  await freezeNow(await axisStart() + 2 * HOUR);
   await page.setViewport(390, 900);
   await new Promise((r) => setTimeout(r, 350));
   const seen = await page.evaluate(`
     const card = document.querySelector('#projects [data-project-card="w4-narrow"]');
-    const btn = card?.querySelector('[data-project-plan-now]');
     const grip = card?.querySelector('[data-drag-project]');
-    const r = btn?.getBoundingClientRect();
+    const start = card?.querySelector('.proj-start');
+    const gr = grip?.getBoundingClientRect();
+    const sr = start?.getBoundingClientRect();
     return { overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      btn: r ? { w: r.width, h: r.height, left: r.left, right: r.right } : null,
-      grip: grip ? { w: grip.getBoundingClientRect().width, h: grip.getBoundingClientRect().height } : null,
+      planButtons: card ? card.querySelectorAll('[data-project-plan-now]').length : -1,
+      grip: gr ? { w: gr.width, h: gr.height } : null,
+      start: sr ? { w: sr.width, h: sr.height, left: sr.left, right: sr.right } : null,
       inner: innerWidth, cardFits: card ? card.scrollWidth <= card.clientWidth + 1 : false };
   `);
   assert.ok(seen.overflow <= 1, `390px 不应横向溢出，实际 ${seen.overflow}px`);
   assert.ok(seen.cardFits, '窄屏下项目卡内容不溢出');
-  assert.ok(seen.btn && seen.btn.w > 40 && seen.btn.h >= 20, `「排进今天」在窄屏仍可点：${JSON.stringify(seen.btn)}`);
-  assert.ok(seen.btn.left >= 0 && seen.btn.right <= seen.inner, '「排进今天」在视口内');
+  assert.equal(seen.planButtons, 0, '窄屏卡片上也没有「排进今天」按钮');
   assert.ok(seen.grip && seen.grip.w > 10 && seen.grip.h >= 20, `窄屏下拖动柄仍可用：${JSON.stringify(seen.grip)}`);
+  assert.ok(seen.start && seen.start.w > 40 && seen.start.h >= 20, `窄屏下「开始专注」仍可点：${JSON.stringify(seen.start)}`);
+  assert.ok(seen.start.left >= 0 && seen.start.right <= seen.inner, '「开始专注」在视口内');
   await page.screenshot(shot('T-W4-390px.png'), { fullPage: true });
-  // 窄屏点按钮仍然能排
-  const before = (await blocksOf('w4-narrow-main')).length;
-  await page.click('#projects [data-project-card="w4-narrow"] [data-project-plan-now]');
-  await page.waitFor(`__wbState.view.scheduled.filter((b) => b.taskId === 'w4-narrow-main').length === ${before + 1}`);
   await page.setViewport(1440, 900);
   await new Promise((r) => setTimeout(r, 300));
-  await releaseNow();
 });
 
 

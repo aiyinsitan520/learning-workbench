@@ -342,7 +342,34 @@ test('审查修复：47 分钟项目拖到 23:40 保存 23:40–24:00，落点�
   assert.equal(saved.plannedSeconds, 20 * 60, '时长裁剪为当天剩余 20 分钟');
 });
 
-test('审查修复：每日 1200 分钟的项目点「排进今天」不放不下就提示，不会溢到次日', async () => {
+/** 卡片上没有「排进今天」按钮了：右键菜单里那条走同一条 planNow，用它验证「放不下就不建块」。 */
+async function chooseProjectMenu(projectId, label) {
+  const sel = '#projects [data-project-card="' + projectId + '"]';
+  const pt = await page.evaluate(`
+    const el = document.querySelector(${JSON.stringify(sel)});
+    if (!el) return null;
+    el.scrollIntoView({ block: 'center' });
+    const r = el.getBoundingClientRect();
+    return [r.left + r.width / 2, r.top + r.height / 2];
+  `);
+  assert.ok(pt, '右键目标不存在：' + projectId);
+  const [x, y] = pt;
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1 });
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'right', buttons: 0, clickCount: 1 });
+  await page.waitFor('document.querySelector(".ctx-menu .ctx-item")');
+  const ok = await page.evaluate(`
+    const row = [...document.querySelectorAll('.ctx-menu .ctx-item')]
+      .find((el) => el.querySelector('.ctx-label').textContent.trim() === ${JSON.stringify(label)});
+    if (!row) return false;
+    row.click();
+    return true;
+  `);
+  assert.ok(ok, '右键菜单里没有「' + label + '」');
+  await new Promise((r) => setTimeout(r, 400));
+}
+
+test('审查修复：每日 1200 分钟的项目从右键菜单「排进今天」，放不下就提示，不会溢到次日', async () => {
   // 1200 分钟 = 20 小时 > 时间轴 18 小时，今天不可能放下
   assert.equal(await page.evaluate(`
     const r = await fetch('/api/command', { method: 'POST', headers: { 'content-type': 'application/json' },
@@ -351,10 +378,9 @@ test('审查修复：每日 1200 分钟的项目点「排进今天」不放不�
     return (await r.json()).ok;
   `), true);
   await page.goto(`${base}/`);
-  await page.waitFor('document.querySelector(\'#projects [data-project-card="w4-huge"] [data-project-plan-now]\')');
+  await page.waitFor('document.querySelector(\'#projects [data-project-card="w4-huge"]\')');
   const before = await page.evaluate(`return __wbState.view.scheduled.filter((b) => b.taskId === 'w4-huge-main').length;`);
-  await page.click('#projects [data-project-card="w4-huge"] [data-project-plan-now]');
-  await new Promise((r) => setTimeout(r, 500));
+  await chooseProjectMenu('w4-huge', '排进今天');
   const after = await page.evaluate(`return __wbState.view.scheduled.filter((b) => b.taskId === 'w4-huge-main');`);
   assert.equal(after.length, before, '放不下就不建块');
   assert.match(await page.text('#toast'), /今天排满了/);

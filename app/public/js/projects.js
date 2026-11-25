@@ -3,8 +3,9 @@
 // createProject / updateProject / setProjectState / saveProjectLog（见 architecture/workbench.d.ts）。
 // 按钮统一用 data-project-* 属性并在本模块内自己监听；唯一例外是「开始专注」沿用外壳约定的
 // data-action="start" data-focus-task="<主任务 id>"。打开项目主任务正文用 ctx.openTask(mainTaskId)。
-// T-W4：标题区的拖动柄带 data-drag-project，由 planner.js 在 document 级接住拖进日计划（复制，项目卡不动）；
-// 「排进今天」不用鼠标，走传入的 planner.nextFreeStart()。
+// T-W4：整张项目卡带 data-project-drag（鼠标抓卡片任意空白处），标题区的拖动柄另带 data-drag-project
+// （触屏路径），都由 planner.js 在 document 级接住拖进日计划（复制，项目卡不动）。
+// 卡片上没有「排进今天」按钮（用户嫌它把拖动挤成了备选）；不用鼠标时走右键菜单里那条，用 planner.nextFreeStart()。
 import { newId } from './api.js';
 import { esc, icon } from './icons.js';
 import { localToday } from './dom.js';
@@ -135,7 +136,7 @@ const planable = (p) => !p.completedAt && !p.archivedAt;
 
 // ---------------------------------------------------------------- 渲染
 
-function cardMarkup(p, { today = true } = {}) {
+function cardMarkup(p) {
   const late = p.daysLeft != null && p.daysLeft < 0;
   const target = p.dailyMinutes ? p.dailyMinutes * 60 : 0;
   const pct = target ? Math.min(100, Math.round((p.focusSecondsOnDay / target) * 100)) : 0;
@@ -144,14 +145,15 @@ function cardMarkup(p, { today = true } = {}) {
   const noteLead = p.log?.note ? '今天' : (p.lastLog ? '上次' : '');
   const menuOpen = state.openMenu === p.id;
   const canPlan = planable(p);
-  const minutes = Math.round(planSeconds(p) / 60);
-  const planLabel = today ? '排进今天' : '排进这天';
-  // 标题区的拖动柄：planner.js 在 document 级接住，拖进时间轴时按 dailyMinutes 排一个块（复制，卡片不动）。
+  // planner.js 在 document 级接住：鼠标 / 触控笔抓整张卡任意空白处就能拖（data-project-drag），
+  // 触屏只认左上角的拖动柄（data-drag-project），否则整卡起拖会和右栏滚动抢手势。
+  // 拖进时间轴按 dailyMinutes 排一个块（复制，卡片不动）。
   const grip = canPlan ? `<button type="button" class="proj-grip" data-drag-project="${esc(p.id)}"
         aria-label="把 ${esc(p.title)} 拖进日计划"
         title="按住拖到左栏日计划（复制，不移动项目）">${icon('grip')}</button>` : '';
-  return `<article class="proj-card${canPlan ? '' : ' proj-done'}" data-project-card="${esc(p.id)}">
-    <div class="proj-head">
+  const dragTitle = '按住卡片拖到左栏日计划（复制，不移动项目）';
+  return `<article class="proj-card${canPlan ? '' : ' proj-done'}" data-project-card="${esc(p.id)}"${canPlan ? ` data-project-drag="${esc(p.id)}"` : ''}>
+    <div class="proj-head"${canPlan ? ` title="${dragTitle}"` : ''}>
       ${grip}
       <b class="proj-name" title="${esc(p.title)}">${esc(p.title)}</b>
       <small class="proj-days${late ? ' late' : ''}">${esc(dayText(p))}</small>
@@ -163,8 +165,6 @@ function cardMarkup(p, { today = true } = {}) {
       title="看这个项目关联的收获">收获 ${p.harvestCount}</button>` : ''}
     <div class="proj-actions">
       <button type="button" class="primary proj-start" data-action="start" data-focus-task="${esc(p.mainTaskId)}">开始专注</button>
-      ${canPlan ? `<button type="button" class="light proj-plan" data-project-plan-now="${esc(p.id)}"
-        title="不用拖动：排进${today ? '今天' : '这天'}第一个 ${minutes} 分钟的空档">${planLabel}</button>` : ''}
       <button type="button" class="light" data-project-note="${esc(p.id)}">写正文</button>
       <button type="button" class="iconbtn proj-more" data-project-menu="${esc(p.id)}"
         aria-haspopup="menu" aria-expanded="${menuOpen ? 'true' : 'false'}" aria-label="${esc(p.title)} 的更多操作">⋯</button>
@@ -189,7 +189,6 @@ function render(view) {
   const all = view.projects ?? [];
   const active = all.filter((p) => !p.completedAt);
   const done = all.filter((p) => p.completedAt);
-  const today = view.day === localToday(view.timeZone);
   const head = `<div class="section-head proj-head-bar">
     <h2>长期项目</h2>
     <span class="count" aria-label="长期项目数量">${active.length}</span>
@@ -201,7 +200,7 @@ function render(view) {
       <p class="proj-try">试试：建一个「两周背完 3000 词」，每天按住它拖进左栏计划。</p>
       <button type="button" class="light proj-emptybtn" data-project-new>新建长期项目</button>`;
   } else {
-    next = `${head}<div class="proj-list">${active.map((p) => cardMarkup(p, { today })).join('')}</div>${doneMarkup(done)}`;
+    next = `${head}<div class="proj-list">${active.map((p) => cardMarkup(p)).join('')}</div>${doneMarkup(done)}`;
   }
   // 内容没变就不重写：拖动柄正在被按住时换掉节点会丢指针捕获，块也就拖不动了。
   if (next === markup) return;
@@ -348,7 +347,7 @@ async function setState(projectId, action, success) {
 }
 
 /**
- * 「排进今天」：不用鼠标的替代方式。用 planner.nextFreeStart 找今天第一个放得下的空档，
+ * 「排进今天」：只从右键菜单进来（卡片上不再有按钮）。用 planner.nextFreeStart 找今天第一个放得下的空档，
  * 把项目主任务排成一个时间块（与拖入同一条写入路径，saveSchedule）。没有空档就提示排满了。
  */
 async function planNow(projectId) {
@@ -380,13 +379,12 @@ function onClick(event) {
   // 只处理本模块的按钮；「开始专注」交给外壳的 data-action 分派。
   const mine = ['projectNew', 'projectNote', 'projectMenu', 'projectEdit', 'projectComplete',
     'projectArchive', 'projectReopen', 'projectCancel', 'projectConfirm', 'projectDue', 'projectDaily',
-    'projectPlanNow', 'projectHarvest'];
+    'projectHarvest'];
   const key = mine.find((name) => d[name] != null);
   if (!key) return;
 
   if (key === 'projectNew') { state.openMenu = null; openForm(); return; }
   if (key === 'projectCancel') { ctx.closeDialog(); return; }
-  if (key === 'projectPlanNow') { void planNow(d.projectPlanNow); return; }
   // 「收获 N」跳到按该项目筛选的收获页（T-W8b）：先切页，页面挂上后再发筛选事件
   if (key === 'projectHarvest') {
     const projectId = d.projectHarvest;

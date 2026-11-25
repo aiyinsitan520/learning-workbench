@@ -338,17 +338,24 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
   });
 
   /**
-   * 右栏长期项目（T-W4）：拖动柄带 data-drag-project="<projectId>"，子任务用 data-drag-project-task="<taskId>"。
+   * 右栏长期项目（T-W4）：整张卡带 data-project-drag="<projectId>"（鼠标 / 触控笔抓卡片任意空白处即可），
+   * 左上角拖动柄另带 data-drag-project（触屏路径），子任务用 data-drag-project-task="<taskId>"。
    * 项目卡本身不动（这是「复制」），落点建一个时间块：taskId 取项目主任务，时长取 dailyMinutes*60（无则 30 分钟）。
    * 监听挂在 document 上：起点在右栏、落点在左栏时间轴，跨栏拖动不经过 sidebar。
    */
   document.addEventListener('pointerdown', (event) => {
-    const source = event.target.closest?.('[data-drag-project], [data-drag-project-task]');
-    if (!source || event.button !== 0 || !view || drag) return;
-    const project = source.dataset.dragProject
-      ? (view.projects ?? []).find((item) => item.id === source.dataset.dragProject)
-      : null;
-    if (source.dataset.dragProject && !project) return;
+    if (event.button !== 0 || !view || drag) return;
+    const grip = event.target.closest?.('[data-drag-project], [data-drag-project-task]');
+    // 整卡起拖：卡片里的按钮、链接、输入框、菜单不参与，免得点「开始专注」也拖起来。
+    // 触屏不整卡起拖 —— 会和右栏滚动抢手势，仍只认拖动柄。
+    const cardHit = !grip && event.pointerType !== 'touch'
+      && !event.target.closest?.('button, a, input, textarea, select, [role="menuitem"], [contenteditable]')
+      ? event.target.closest?.('[data-project-drag]') : null;
+    const source = grip ?? cardHit;
+    if (!source) return;
+    const projectId = source.dataset.dragProject ?? source.dataset.projectDrag;
+    const project = projectId ? (view.projects ?? []).find((item) => item.id === projectId) : null;
+    if (projectId && !project) return;
     if (project && (project.completedAt || project.archivedAt)) return;
     const taskId = source.dataset.dragProjectTask ?? project?.mainTaskId;
     if (!taskId) return;
@@ -367,7 +374,8 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     float.style.top = `${event.clientY + 14}px`;
     document.body.append(float);
     drag = {
-      source, block: null, task: { id: taskId, title }, card, float, edge: '', resize: false,
+      source, ownCard: source.closest?.('.proj-card') ?? null,
+      block: null, task: { id: taskId, title }, card, float, edge: '', resize: false,
       external: true, wanted, day: view.day, pointerId: event.pointerId,
       x: event.clientX, y: event.clientY, initialX: event.clientX, initialY: event.clientY,
       scroll: grid.scrollTop, grab: 0, before: card.getAttribute('style'),
@@ -377,6 +385,11 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
   });
 
   function preview() {
+    // 右栏整卡起拖后把原卡片压暗，表示这是「复制出去」，卡片本身不会跟着走。
+    if (drag.external && drag.ownCard && !drag.dimmed) {
+      drag.dimmed = true;
+      drag.ownCard.classList.add('proj-dragging');
+    }
     const { x, y, card, block, edge, grab } = drag;
     if (edge === 'end') {
       const distance = y - drag.initialY + grid.scrollTop - drag.scroll;
@@ -487,6 +500,7 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     drag = null;
     if (stopped.frame) cancelAnimationFrame(stopped.frame);
     stopped.float?.remove();
+    stopped.ownCard?.classList.remove('proj-dragging');
     if (keep) stopped.card.classList.remove('planner-dragging');
     else if (stopped.block) resetCard(stopped);
     else stopped.card.remove();
