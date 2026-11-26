@@ -38,6 +38,9 @@ export function bindProjects(hostEl, moduleCtx, tools = {}) {
   if (!bound) {
     // 弹窗内容在 #dialogBody 里，不在 host 内，所以监听挂在 document 上，只处理自己的 data-project-*。
     document.addEventListener('click', onClick);
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && state.openMenu) dismissMenu();
+    });
     document.addEventListener('submit', onSubmit);
     document.addEventListener('change', onChange);
     registerContextMenu('[data-project-card]', projectMenu);
@@ -372,7 +375,15 @@ async function planNow(projectId) {
 
 // ---------------------------------------------------------------- 事件
 
+function dismissMenu() {
+  const id = state.openMenu;
+  state.openMenu = null;
+  render(ctx.state.view);
+  host.querySelector(`[data-project-menu="${CSS.escape(id)}"]`)?.focus();
+}
+
 function onClick(event) {
+  if (state.openMenu && !event.target.closest?.('[data-project-menu], [data-project-menu-for]')) dismissMenu();
   const el = event.target instanceof Element ? event.target.closest('button') : null;
   if (!el) return;
   const d = el.dataset;
@@ -402,6 +413,7 @@ function onClick(event) {
   if (key === 'projectMenu') {
     state.openMenu = state.openMenu === d.projectMenu ? null : d.projectMenu;
     render(ctx.state.view);
+    host.querySelector(`[data-project-menu="${CSS.escape(d.projectMenu)}"]`)?.focus();
     return;
   }
   if (key === 'projectEdit') {

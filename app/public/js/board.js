@@ -21,6 +21,15 @@ const state = {
 let panel = null;
 let ctx = null;
 let loadSeq = 0;
+const moving = new Set();
+const slotKey = (block, delta = 0) => JSON.stringify([block.taskId, block.startsAt + delta]);
+
+async function todaySlots({ digest, today }) {
+  const read = day => ctx.api.get(`/api/view?day=${encodeURIComponent(day)}`);
+  const [target, source] = await Promise.all([read(today), read(digest.day)]);
+  return { slots: new Set(target.view.scheduled.map(block => slotKey(block))),
+    delta: target.view.range.start - source.view.range.start };
+}
 
 /** @param {HTMLElement} host #mainContent */
 export function showBoard(host, moduleCtx) {
@@ -66,10 +75,15 @@ async function load({ day = state.day, keepMarks = false } = {}) {
   render();
   try {
     const data = await ctx.api.get('/api/review' + (day ? `?day=${encodeURIComponent(day)}` : ''));
+    const target = data.digest.unfinishedBlocks.length ? await todaySlots(data) : null;
     if (seq !== loadSeq) return;
     state.day = data.digest.day;
     state.data = data;
     if (!keepMarks) { state.marks.clear(); state.aiError = ''; }
+    for (const block of data.digest.unfinishedBlocks) {
+      if (target.slots.has(slotKey(block, target.delta))) state.marks.set(block.id, { block, mark: 'moved' });
+      else if (state.marks.get(block.id)?.mark === 'moved') state.marks.delete(block.id);
+    }
   } catch (err) {
     if (seq !== loadSeq) return;
     state.error = err?.message ?? String(err);
@@ -230,7 +244,7 @@ function unfinishedMarkup() {
   return `<section class="board-card board-unfinished">
     <div class="board-cardhead">
       <h2>没做完的计划</h2>
-      ${pending.length > 1 ? '<button type="button" class="light" data-board-move-all>全部顺延到今天</button>' : ''}
+      ${pending.length > 1 ? `<button type="button" class="light" data-board-move-all ${moving.size ? "disabled" : ""}>全部顺延到今天</button>` : ''}
     </div>
     <div class="board-rows">
       ${rows.map(({ block, mark }) => `<div class="board-row${mark ? ' handled' : ''}">
@@ -239,8 +253,8 @@ function unfinishedMarkup() {
         <small>${block.minutes} 分钟</small>
         ${mark
           ? `<b class="board-mark">${mark === 'moved' ? '已顺延' : '已完成'}</b>`
-          : `<button type="button" class="light" data-board-move="${esc(block.id)}">顺延到今天</button>
-             <button type="button" class="light" data-board-done="${esc(block.id)}">标记完成</button>`}
+          : `<button type="button" class="light" data-board-move="${esc(block.id)}" ${moving.has(slotKey(block)) ? "disabled" : ""}>顺延到今天</button>
+             <button type="button" class="light" data-board-done="${esc(block.id)}" ${moving.has(slotKey(block)) ? "disabled" : ""}>标记完成</button>`}
       </div>`).join('')}
     </div>
   </section>`;
@@ -445,18 +459,16 @@ async function generateAi() {
 /** 顺延到今天：startsAt 加上「今天零点 − 那天零点」的差。 */
 async function moveBlocks({ blockId = '', all = false } = {}) {
   if (!state.data) return;
-  const rows = unfinishedRows().filter((r) => !r.mark && (all || r.block.id === blockId));
+  const rows = unfinishedRows().filter((r) => !r.mark && !moving.has(slotKey(r.block)) && (all || r.block.id === blockId));
   if (!rows.length) return;
-  const { digest, today } = state.data;
-  const busy = panel.querySelector('[data-board-move-all]');
-  if (busy) busy.disabled = true;
+  const data = state.data;
+  for (const { block } of rows) moving.add(slotKey(block));
+  render();
   try {
-    const [todayView, dayView] = await Promise.all([
-      ctx.api.get(`/api/view?day=${encodeURIComponent(today)}`),
-      ctx.api.get(`/api/view?day=${encodeURIComponent(digest.day)}`),
-    ]);
-    const delta = todayView.view.range.start - dayView.view.range.start;
+    const { slots, delta } = await todaySlots(data);
     for (const { block } of rows) {
+      const key = slotKey(block, delta);
+      if (slots.has(key)) continue;
       await ctx.api.command({
         type: 'saveSchedule',
         block: {
@@ -466,12 +478,14 @@ async function moveBlocks({ blockId = '', all = false } = {}) {
           plannedSeconds: block.minutes * 60,
         },
       });
-      state.marks.set(block.id, { block, mark: 'moved' });
+      slots.add(key);
     }
     ctx.notify(rows.length > 1 ? `已把 ${rows.length} 个时间块顺延到今天` : '已顺延到今天');
     await refreshAfterWrite();
   } catch (err) {
     ctx.notify(err?.message ?? String(err), 'bad');
+  } finally {
+    for (const { block } of rows) moving.delete(slotKey(block));
     render();
   }
 }

@@ -526,7 +526,22 @@ async function onPageClick(page, event) {
     const index = Number(isPoint ? row.dataset.harvestPoint : row.dataset.harvestTodo);
     if ('harvestMoveup' in data) return moveRow(page, card, isPoint, index, -1);
     if ('harvestMovedown' in data) return moveRow(page, card, isPoint, index, 1);
-    if ('harvestRemoverow' in data) return saveRows(page, card, isPoint, withoutRow(card, isPoint, index));
+    if ('harvestRemoverow' in data) {
+      if (!isPoint) return saveRows(page, card, false, withoutRow(card, false, index));
+      const remaining = withoutRow(card, true, index);
+      let restoring = false;
+      const undo = async () => {
+        if (restoring) return;
+        restoring = true;
+        const visible = connectedPage(ctx) ?? page;
+        const latest = visible.cards.find(item => item.id === card.id);
+        const points = [...(latest?.points ?? remaining)];
+        points.splice(index, 0, card.points[index]);
+        await saveRows(visible, card, true, points);
+      };
+      return applyCard(page, card, { type: 'updateHarvest', harvestId: id, points: remaining },
+        '已删除要点 · ', undo);
+    }
     if ('harvestJoin' in data || 'harvestSchedule' in data) {
       return promote(page, card, index, 'harvestSchedule' in data);
     }
@@ -535,15 +550,17 @@ async function onPageClick(page, event) {
 }
 
 /** 卡片上按钮触发的写操作：统一走 ctx.run，失败给提示，成功后重载列表。 */
-async function applyCard(page, card, command, success) {
+async function applyCard(page, card, command, success, undo) {
   try {
     await page.ctx.api.command(command);
-    page.ctx.notify(success);
     await page.ctx.reload();
     const visible = connectedPage(page.ctx);
     if (visible) await load(visible);
+    page.ctx.notify(success, '', undo);
+    return true;
   } catch (err) {
     page.ctx.notify(message(err), 'bad');
+    return false;
   }
 }
 
@@ -596,8 +613,9 @@ function onRowKey(page, event) {
   beginRowEdit(page, card, row, isPoint, index, span);
 }
 
-function beginRowEdit(page, card, row, isPoint, index, span) {
-  const original = isPoint ? card.points[index] : card.todos[index]?.text ?? '';
+function beginRowEdit(page, card, row, isPoint, index, span, draft = false) {
+  const original = draft ? '' : (isPoint ? card.points[index] : card.todos[index]?.text ?? '');
+  const listeners = new AbortController();
   // 不换节点：直接让这一行文字可编辑。换节点会让浏览器把焦点收回去，编辑框一闪就没了。
   page.editing = true;
   span.setAttribute('contenteditable', 'true');
@@ -613,33 +631,51 @@ function beginRowEdit(page, card, row, isPoint, index, span) {
   const finish = async (commit, addAfter) => {
     if (settled) return;
     settled = true;
+    listeners.abort();
     page.editing = false;
     const text = span.textContent.trim();
     span.removeAttribute('contenteditable');
     delete span.dataset.harvestEditing;
-    if (!commit || text === original) {
-      span.textContent = original;
+    if (!commit || (draft && !text)) {
+      if (draft) row.remove();
+      else span.textContent = original;
       return;
     }
-    const list = isPoint ? [...card.points] : card.todos.map((todo) => ({ text: todo.text, taskId: todo.taskId }));
-    if (text) {
-      list[index] = isPoint ? text : { ...list[index], text };
-      if (addAfter) list.splice(index + 1, 0, isPoint ? '' : { text: '', taskId: null });
-      const payload = isPoint ? list.filter((item) => item.trim()) : list.filter((item) => item.text.trim());
-      await saveRows(page, card, isPoint, payload);
-    } else {
-      await saveRows(page, card, isPoint, withoutRow(card, isPoint, index));
+    if (text !== original) {
+      // 写入成功后由重绘显示新内容，避免下一次排序使用旧的行数据。
+      span.textContent = original;
+      const list = isPoint ? [...card.points] : card.todos.map(({ text, taskId }) => ({ text, taskId }));
+      const value = isPoint ? text : { ...(draft ? {} : list[index]), text };
+      list.splice(index, draft ? 0 : 1, ...(text ? [value] : []));
+      if (addAfter && isPoint && index >= POINTS_PREVIEW - 1) page.expanded.add(card.id);
+      if (!await saveRows(page, card, isPoint, list)) {
+        if (draft) row.remove();
+        else span.textContent = original;
+        return;
+      }
     }
+    if (!addAfter || !text || connectedPage(page.ctx) !== page) return;
+    const latest = page.cards.find(item => item.id === card.id);
+    const kind = isPoint ? 'point' : 'todo';
+    const cardNode = page.root.querySelector(`[data-harvest-card="${CSS.escape(card.id)}"]`);
+    const anchor = cardNode?.querySelector(`[data-harvest-${kind}="${index}"]`);
+    if (!latest || !anchor) return;
+    const next = document.createElement('li');
+    next.className = 'harvest-row';
+    next.innerHTML = '<span class="harvest-rowtext" tabindex="0"></span>';
+    anchor.after(next);
+    beginRowEdit(page, latest, next, isPoint, index + 1, next.firstElementChild, true);
   };
   span.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') { event.preventDefault(); void finish(true, true); }
+    if (event.isComposing) return;
+    if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); void finish(true, true); }
     else if (event.key === 'Escape') { event.preventDefault(); void finish(false, false); }
     else if (event.key === 'Tab') { void finish(true, false); }
-  }, { once: false });
+  }, { signal: listeners.signal });
   // 进入编辑后浏览器还会补发一次 blur（焦点从被点的位置回到文档），那一拍不算改完。
   // 所以延后一拍才开始监听 blur。
   setTimeout(() => {
-    if (!settled) span.addEventListener('blur', () => void finish(true, false), { once: true });
+    if (!settled) span.addEventListener('blur', () => void finish(true, false), { signal: listeners.signal });
   }, 0);
 }
 
@@ -967,6 +1003,9 @@ function addImages(page, card) {
  */
 async function startReview(page, { due }) {
   const ctx = page.ctx;
+  const request = Symbol();
+  page.reviewing = request;
+  const current = () => connectedPage(ctx) === page && page.reviewing === request;
   let queue;
   try {
     if (due) {
@@ -979,15 +1018,18 @@ async function startReview(page, { due }) {
       queue = single ? [single] : [];
     }
   } catch (err) {
-    ctx.notify(message(err), 'bad');
+    if (current()) ctx.notify(message(err), 'bad');
     return;
   }
+  if (!current()) return;
   if (!queue.length) { ctx.notify('现在没有要复习的收获'); return; }
   let index = 0;
   let revealed = false;
   ctx.modal('<section class="harvest-dialog harvest-review" data-harvest-reviewbox></section>');
   const root = document.querySelector('[data-harvest-reviewbox]');
 
+  const active = () => current() && !!root.closest('#dialog[open]');
+  let saving = false;
   function draw() {
     const card = queue[index];
     root.innerHTML = [
@@ -1015,13 +1057,23 @@ async function startReview(page, { due }) {
       draw();
     });
     const answer = async (result) => {
-      const card = queue[index];
+      if (saving || !active()) return;
+      saving = true;
+      const buttons = root.querySelectorAll('[data-harvest-review-remember], [data-harvest-review-forgot]');
+      for (const button of buttons) button.disabled = true;
       try {
-        await ctx.api.command({ type: 'reviewHarvest', id: card.id, result });
-        await ctx.reload();
+        await ctx.api.command({ type: 'reviewHarvest', id: queue[index].id, result });
       } catch (err) {
-        ctx.notify(message(err), 'bad');
+        saving = false;
+        if (active()) {
+          for (const button of buttons) button.disabled = false;
+          ctx.notify(message(err) + '，请重试', 'bad');
+        }
+        return;
       }
+      try { await ctx.reload(); } catch (err) { if (active()) ctx.notify(message(err), 'bad'); }
+      if (!active()) return;
+      saving = false;
       index += 1;
       revealed = false;
       if (index >= queue.length) {
