@@ -31,10 +31,11 @@ function dragLabel(startsAt, seconds, timeZone) {
   return `${clockOf(startsAt, timeZone)}–${clockOf(startsAt + seconds, timeZone)} · ${Math.round(seconds / 60)} 分钟`;
 }
 
-/** 块比这还矮时，两个手柄各缩到 6px，给中间的标题留出按住拖动的位置。 */
+// 视觉和点击范围以像素计算，刻度和拖动仍使用真实秒数。
+const MIN_VISIBLE = 12;
+const MIN_TARGET = 24;
 const SHORT_BLOCK = 28;
-/** 块比这还矮时，6px 手柄会互相叠住，改成上沿占上 40%、下沿占下 40%。 */
-const TINY_BLOCK = 12;
+
 
 function renderScaleSwitch(hourHeight) {
   const buttons = SCALES.map((scale) => `<button type="button" data-plan-scale="${scale}"
@@ -55,25 +56,31 @@ function renderAxis(view, start, end, hourHeight) {
   const placed = view.scheduled.filter((block) => block.startsAt < end
     && block.startsAt + block.plannedSeconds > start).map((block) => {
     const visibleStart = Math.max(start, block.startsAt);
-    let lane = laneEnds.findIndex((occupiedUntil) => occupiedUntil <= visibleStart);
+    const axisHeight = toPixels(end - start);
+    const realTop = toPixels(visibleStart - start);
+    const pixels = toPixels(Math.min(end, block.startsAt + block.plannedSeconds) - visibleStart);
+    const height = Math.max(MIN_VISIBLE, pixels);
+    const hitHeight = Math.max(MIN_TARGET, pixels);
+    // 临近午夜时向上扩展；相邻的极短块分栏，扩大的命中区不会遮住下一项。
+    const top = Math.min(realTop, axisHeight - height);
+    const hitTop = Math.min(realTop, axisHeight - hitHeight);
+    let lane = laneEnds.findIndex((occupiedUntil) => occupiedUntil <= hitTop);
     if (lane === -1) lane = laneEnds.length;
-    laneEnds[lane] = block.startsAt + block.plannedSeconds;
-    return { block, lane, visibleStart };
+    laneEnds[lane] = hitTop + hitHeight;
+    return { block, lane, pixels, top, hitOffset: hitTop - top, hitBelow: hitTop + hitHeight - top - height };
   });
   const laneWidth = 100 / Math.max(laneEnds.length, 1);
-  const blocks = placed.map(({ block, lane, visibleStart }) => {
-    const seconds = Math.min(block.startsAt + block.plannedSeconds, end) - visibleStart;
+  const blocks = placed.map(({ block, lane, pixels, top, hitOffset, hitBelow }) => {
     const label = timeLabel(block, view.timeZone);
     const title = esc(block.task.title);
     const id = esc(block.id);
     const minutes = Math.round(block.plannedSeconds / 60);
     const startClock = clockOf(block.startsAt, view.timeZone);
     const latestStart = block.startsAt + block.plannedSeconds - Math.min(QUARTER, block.plannedSeconds);
-    const pixels = block.plannedSeconds * hourHeight / HOUR;
-    const sizeClass = pixels < TINY_BLOCK ? 'tiny' : pixels < SHORT_BLOCK ? 'short' : '';
+    const sizeClass = pixels < MIN_VISIBLE ? 'tiny' : pixels < SHORT_BLOCK ? 'short' : pixels >= 2 * MIN_TARGET ? 'roomy' : '';
     return `<div class="planner-block ${block.task.completedAt ? 'done' : ''} ${sizeClass}"
-        style="top:${toPixels(visibleStart - start)}px;
-        height:${toPixels(seconds)}px;left:${lane * laneWidth}%;width:calc(${laneWidth}% - 2px)">
+        style="top:${top}px;--hit-offset:${hitOffset}px;--hit-below:${hitBelow}px;
+        height:${pixels}px;left:${lane * laneWidth}%;width:calc(${laneWidth}% - 2px)">
       <button class="planner-resize planner-resize-start" type="button" data-resize-plan-start="${id}" role="slider"
         aria-label="调整 ${title} 的开始时间" aria-orientation="vertical"
         aria-valuemin="0"
@@ -330,7 +337,10 @@ export function bindPlanner({ onCreate, onChange, onDrop, onFull }) {
     drag = {
       source, block, task, card, edge, resize: Boolean(edge), day: view.day, pointerId: event.pointerId,
       x: event.clientX, y: event.clientY, initialX: event.clientX, initialY: event.clientY,
-      scroll: grid.scrollTop, grab: block ? event.clientY - card.getBoundingClientRect().top : 0,
+      scroll: grid.scrollTop,
+      // 贴近午夜的短块会向上扩大；移动仍从真实的可见开始刻度算指针偏移。
+      grab: block ? event.clientY - grid.querySelector('.planner-layer').getBoundingClientRect().top
+        - toPixels(Math.max(block.startsAt, start) - start) : 0,
       before: card.getAttribute('style'), seconds: block?.plannedSeconds ?? DEFAULT_PLAN_SECONDS,
       startsAt: block?.startsAt,
     };

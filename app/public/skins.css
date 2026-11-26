@@ -29,6 +29,7 @@
   --accent-soft:#ffe2ea;
   --accent-line:#f5b6c6;
   --accent-ink:#b03a5c;
+  --done-button-bg:var(--accent-ink);
   --on-accent:#ffffff;
   --brand-ink:#7a3b55;
   --brandmark:linear-gradient(140deg,#ff9fb5,#b79cff);
@@ -158,6 +159,7 @@
   --accent-soft:#e1e9f3;
   --accent-line:#a9bfd8;
   --accent-ink:#3b5d86;
+  --done-button-bg:var(--accent-ink);
   --on-accent:#ffffff;
   --brand-ink:#2e3440;
   --brandmark:#5e81ac;

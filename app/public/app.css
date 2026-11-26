@@ -83,6 +83,9 @@ header.macbar{position:sticky;top:0;z-index:10;height:var(--header-h);display:gr
 .headtools{grid-column:4;display:flex;align-items:center;gap:10px;justify-self:end}
 .fonttoggle{padding:4px 10px;border-radius:999px;border:1px solid var(--line-strong);background:var(--surface);
   font:12px var(--round-heading);color:var(--muted)}
+.check,#fontToggle{position:relative}
+#fontToggle::before,.check::before{content:"";position:absolute;left:50%;top:50%;width:100%;height:100%;
+  min-width:24px;min-height:24px;transform:translate(-50%,-50%)}
 .fonttoggle[aria-pressed=true]{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent-ink)}
 
 /* 灵动岛（参考 Wisland overlay-001） */
@@ -122,6 +125,7 @@ main{min-width:0;padding:12px clamp(12px,1.4vw,22px) 24px}
 #newTask{display:flex;gap:6px;margin:12px 0 10px}
 #newTask input{flex:1;min-width:0;height:34px;padding:0 10px;border:1px solid var(--line-strong);border-radius:var(--radius-s);
   background:var(--surface);transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease)}
+#newTask input::placeholder,#taskNoteStatus{color:var(--ink-2);opacity:1}
 #newTask input:focus{outline:0;border-color:var(--accent-line);box-shadow:0 0 0 3px var(--ring-soft)}
 #newTask button{display:grid;place-items:center;width:34px;height:34px;border-radius:var(--radius-s);
   border:1px solid var(--accent-line);background:var(--accent-soft);color:var(--accent-ink)}
@@ -159,6 +163,7 @@ main{min-width:0;padding:12px clamp(12px,1.4vw,22px) 24px}
 .task-editor{display:flex;flex-direction:column;min-height:calc(100dvh - var(--header-h) - 36px);
   background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-l);box-shadow:var(--shadow-1);overflow:hidden}
 .task-editor.empty{min-height:0;padding:28px;color:var(--muted)}
+.primary.done-toggle,.primary.done-toggle:hover:not(:disabled){background:var(--done-button-bg)}
 .task-editor-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px 16px;
   padding:18px clamp(16px,2.2vw,32px) 14px;border-bottom:1px solid var(--line)}
 .task-editor-head h1,.task-editor-head form{flex:1 1 220px;min-width:0;margin:0;font-size:24px;line-height:1.35}
@@ -341,6 +346,8 @@ dialog .close:hover{background:var(--surface-3)}
   font-size:13px;opacity:0;pointer-events:none;transform:translate(-50%,14px);box-shadow:var(--shadow-2);
   transition:opacity var(--dur) var(--ease),transform var(--dur) var(--ease-spring)}
 #toast.on{opacity:1;transform:translate(-50%,0)}
+#toast.on button{pointer-events:auto;margin-left:10px;min-height:24px;color:inherit;text-decoration:underline}
+#atError:not(:empty){display:block;color:var(--danger)}
 #toast.bad{background:var(--toast-bad)}
 
 /* 贾维斯喵管家 */

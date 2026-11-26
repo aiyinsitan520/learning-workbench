@@ -35,7 +35,7 @@ export function createDialogs({ state, findTask, renameTask, saveBlock, createTa
         <button class="light" id="saveTitle">改名</button>
       </div>
       <div class="dialogrow">
-        <label>开始时间 <input type="time" id="at" value="${initialTime}"></label>
+        <label>开始时间 <input type="time" id="at" min="06:00" max="23:59" required aria-describedby="atError" value="${initialTime}"><small id="atError" role="status"></small></label>
         <label>时长 <select id="mins">${durations.map((seconds) => `<option value="${seconds}" ${seconds === selectedSeconds ? 'selected' : ''}>${minutesOf(seconds)} 分钟</option>`).join('')}</select></label>
         <button class="light" id="saveTime">${blocks.length ? '改期' : '排入时间线'}</button>
       </div>
@@ -56,9 +56,21 @@ export function createDialogs({ state, findTask, renameTask, saveBlock, createTa
       void renameTask(task.id, next);
     };
 
+    const at = $('#at');
+    at.oninput = () => {
+      at.setCustomValidity('');
+      $('#atError').textContent = '';
+    };
     $('#saveTime').onclick = () => {
-      const value = $('#at').value;
-      if (!value) return;
+      const value = at.value;
+      const message = !value ? '请选择开始时间' : value < '06:00' ? '日计划从 06:00 开始，请选 06:00 之后' : '';
+      at.setCustomValidity(message);
+      if (!at.validity.valid) {
+        $('#atError').textContent = message || at.validationMessage;
+        at.focus();
+        at.reportValidity();
+        return;
+      }
       const [hh, mm] = value.split(':').map(Number);
       if (hh > 23 || mm > 59) { notify('时间不合法', 'bad'); return; }
       const startsAt = selectedBlock && value === initialTime
@@ -91,6 +103,12 @@ export function createDialogs({ state, findTask, renameTask, saveBlock, createTa
     const presets = [15, 25, 30, 45, 60, 90].filter((m) => m <= max);
     const firstStart = new Map();
     for (const b of scheduled) if (!firstStart.has(b.taskId)) firstStart.set(b.taskId, b.startsAt);
+    const byTitle = new Map();
+    for (const task of pending) {
+      if (!byTitle.has(task.title)) byTitle.set(task.title, []);
+      byTitle.get(task.title).push(task);
+    }
+    let edited = false;
     const ids = { task: newId('task'), block: newId('block') }; // 同一次弹窗重试复用，服务端按 ID 幂等
 
     modal(`<div class="dialoghead">
@@ -104,8 +122,10 @@ export function createDialogs({ state, findTask, renameTask, saveBlock, createTa
           <div class="chipgroup" id="planPicks" role="group" aria-label="未完成的待办">
             ${pending.map((task) => {
               const at = firstStart.get(task.id);
+              const peers = byTitle.get(task.title);
+              const ordinal = peers.length > 1 ? `<small>同名 ${peers.indexOf(task) + 1}/${peers.length}</small>` : '';
               return `<button type="button" class="chip task-chip" data-plan-pick="${esc(task.id)}" aria-pressed="false"
-                title="${esc(task.title)}"><span>${esc(task.title)}</span>${at === undefined ? '' : `<time>${clockOf(at, timeZone)}</time>`}</button>`;
+                title="${esc(task.title)}"><span>${esc(task.title)}</span>${ordinal}${at === undefined ? '' : `<time>${clockOf(at, timeZone)}</time>`}</button>`;
             }).join('')}
             <p class="empty chip-empty" hidden>没有匹配的待办，将把「<b></b>」只加进日计划</p>
           </div>` : '<p class="soft plan-hint">还没有待办，写下名字就会直接加进日计划。</p>'}
@@ -121,19 +141,22 @@ export function createDialogs({ state, findTask, renameTask, saveBlock, createTa
           <button type="button" class="light" id="planCancel">取消</button>
           <button type="submit" class="primary">安排</button>
         </div>
-      </form>`);
+      </form>`, { dismissBackdrop: () => !edited });
 
     const title = $('#planTitle');
     const minutes = $('#planMinutes');
     const picks = [...document.querySelectorAll('#planPicks [data-plan-pick]')];
     const presetButtons = [...document.querySelectorAll('[data-plan-minutes]')];
-    let picked = null;
-
-    const matchTask = () => pending.find((t) => t.title === title.value.trim()) ?? null;
+    let selected = pending.find((t) => t.id === state.selectedTaskId) ?? null;
+    function matchTask() {
+      const matches = byTitle.get(title.value.trim());
+      return selected ?? (matches?.length === 1 ? matches[0] : null);
+    }
     function sync() {
       const text = title.value.trim();
       const match = matchTask();
-      picked = match?.id ?? null;
+      const picked = match?.id;
+      title.setCustomValidity(!match && byTitle.get(text)?.length > 1 ? '有多个同名待办，请点选其中一项' : '');
       let visible = 0;
       for (const chip of picks) {
         const task = pending.find((t) => t.id === chip.dataset.planPick);
@@ -159,19 +182,20 @@ export function createDialogs({ state, findTask, renameTask, saveBlock, createTa
 
     for (const chip of picks) {
       chip.onclick = () => {
-        title.value = pending.find((t) => t.id === chip.dataset.planPick).title;
+        edited = true;
+        selected = pending.find((t) => t.id === chip.dataset.planPick);
+        title.value = selected.title;
         sync();
       };
     }
     for (const button of presetButtons) {
-      button.onclick = () => { minutes.value = button.dataset.planMinutes; sync(); };
+      button.onclick = () => { edited = true; minutes.value = button.dataset.planMinutes; sync(); };
     }
-    title.oninput = sync;
-    minutes.oninput = sync;
+    title.oninput = () => { edited = true; selected = null; sync(); };
+    minutes.oninput = () => { edited = true; sync(); };
     $('#planCancel').onclick = closeDialog;
     // 默认选中当前推荐 / 正在编辑的待办，方便直接确认
-    const preferred = pending.find((t) => t.id === state.selectedTaskId);
-    if (preferred) title.value = preferred.title;
+    if (selected) title.value = selected.title;
     sync();
     title.focus();
     title.select();

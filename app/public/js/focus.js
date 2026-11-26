@@ -39,7 +39,7 @@ export function bindFocusChrome({ state, commands, taskName }) {
     } else {
       // 和真正开始时的时长同一口径：跟随当前计划时间块，否则手选时长或 25 分钟
       act.textContent = `开始 ${Math.round(focusSecondsFor(state, state.freeFocus ? null : state.selectedTaskId) / 60)} 分钟`;
-      act.disabled = !rec;
+      act.disabled = !state.view;
     }
   }
 

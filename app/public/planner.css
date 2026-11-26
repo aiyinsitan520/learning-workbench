@@ -30,8 +30,13 @@
 .planner-end { display:block; padding:0 3px; font:10px/1.3 var(--small-text); color:var(--muted); }
 .planner-block {
   position:absolute; display:flex; flex-direction:column;
-  min-width:0; border-radius:var(--radius-xs); box-shadow:var(--shadow-btn); transition:box-shadow .15s ease; overflow:hidden; pointer-events:auto;
+  min-width:0; border-radius:var(--radius-xs); box-shadow:var(--shadow-btn); transition:box-shadow .15s ease; pointer-events:auto;
   background:var(--block-bg); border:1px solid var(--block-line); color:var(--block-ink);
+}
+.planner-block:not(.planner-preview) { min-height:12px; }
+.planner-task::before {
+  content:""; position:absolute; left:0; right:0; top:calc(var(--hit-offset,0px) - 1px);
+  height:100%; min-height:24px;
 }
 .planner-block.done { background:var(--block-done-bg); border-color:var(--line-strong); color:var(--muted); }
 .planner-task {
@@ -56,8 +61,16 @@
 .planner-resize {
   position:absolute; left:0; right:0; height:10px; cursor:ns-resize; touch-action:none; background:transparent;
 }
-.planner-resize-start { top:0; border-radius:var(--radius-xs) var(--radius-xs) 0 0; }
-.planner-resize-end { bottom:0; border-radius:0 0 var(--radius-xs) var(--radius-xs); }
+.planner-resize::before { content:""; position:absolute; inset-inline:0; height:24px; }
+.planner-resize-start::before { top:calc(var(--hit-offset,0px) - 1px); }
+.planner-resize-end::before { bottom:calc(-1px - var(--hit-below,0px)); }
+/* 把上下沿的触控扩展区左右错开，中央始终可以点开或拖动任务。 */
+.planner-resize-start { right:auto; width:clamp(24px,42%,56px); z-index:1; top:0; border-radius:var(--radius-xs) var(--radius-xs) 0 0; }
+.planner-resize-end { left:auto; width:clamp(24px,42%,56px); z-index:1; bottom:0; border-radius:0 0 var(--radius-xs) var(--radius-xs); }
+/* 普通块保留整条上下沿；仅透明扩展区靠两侧，给中间标题留出空间。 */
+.planner-block.roomy .planner-resize { left:0; right:0; width:auto; }
+.planner-block.roomy .planner-resize::before { width:clamp(24px,42%,56px); }
+.planner-block.roomy .planner-resize-end::before { left:auto; }
 .planner-resize::after {
   content:""; position:absolute; left:6px; right:6px; height:2px; border-radius:2px;
   background:var(--accent-line); opacity:0; transition:opacity .15s ease;
@@ -69,7 +82,11 @@
 /* 块不到 28px 高时手柄各缩到 6px，中间仍留得出按住标题拖动的位置；
    块比 12px 还矮时两个 6px 会叠在一起，就按各占 40% 高度分上下，保证上沿在上、下沿在下。 */
 .planner-block.short .planner-resize { height:6px; }
-.planner-block.short .planner-resize::after { left:4px; right:4px; }
+.planner-block.short /* 普通块保留整条上下沿；仅透明扩展区靠两侧，给中间标题留出空间。 */
+.planner-block.roomy .planner-resize { left:0; right:0; width:auto; }
+.planner-block.roomy .planner-resize::before { width:clamp(24px,42%,56px); }
+.planner-block.roomy .planner-resize-end::before { left:auto; }
+.planner-resize::after { left:4px; right:4px; }
 .planner-block.tiny .planner-resize { height:40%; }
 .planner-block.tiny .planner-resize-start { z-index:1; }
 .planner-hour button:focus-visible,.planner-task:focus-visible,.planner-resize:focus-visible { outline-offset:-2px; }

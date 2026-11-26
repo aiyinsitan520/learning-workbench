@@ -51,6 +51,7 @@
   --hero-ink:color-mix(in srgb,var(--accent-ink) 85%,var(--ink));
   --paper-line:color-mix(in srgb,var(--line) 75%,var(--surface));
   --note-ink:var(--ink);
+  --done-button-bg:var(--accent);
   --track:var(--surface-3);
   --chart-soft:color-mix(in srgb,var(--chart) 50%,var(--surface));
   --cal-has:color-mix(in srgb,var(--accent) 4%,var(--surface));

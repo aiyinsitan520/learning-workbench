@@ -106,14 +106,19 @@ async function refresh(canApply) {
   }
 }
 
+let monthRequest = 0;
+
 async function refreshMonth(canApply) {
+  const seq = ++monthRequest;
+  const month = state.month;
+  const current = () => seq === monthRequest && month === state.month && (!canApply || canApply());
   try {
-    const { days } = await api.month(state.month);
-    if (canApply && !canApply()) return false;
+    const { days } = await api.month(month);
+    if (!current()) return false;
     state.monthDays = days;
     draw();
   } catch (err) {
-    notify(errorText(err), 'bad');
+    if (current()) notify(errorText(err), 'bad');
   }
 }
 
@@ -457,7 +462,7 @@ const clickHandlers = [
   ['undo', (v) => commands.undo(v)],
   ['choose', (v) => { state.selectedTaskId = v; state.freeFocus = false; closeDialog(); gotoPage('focus'); void refresh(); }],
   ['select', (v) => { state.selectedTaskId = v; closeDialog(); void commands.start(); }],
-  ['removeblock', (v) => { closeDialog(); void run(() => api.command({ type: 'removeSchedule', blockId: v }), { success: '已取消排期' }); }],
+  ['removeblock', (v) => { closeDialog(); void removeBlock(state.view.scheduled.find((b) => b.id === v), '已取消排期'); }],
   ['catPick', (v) => { state.selectedTaskId = v; void refresh(); }],
   ['day', (v) => switchDay(v)],
   ['month', (v) => switchMonth(Number(v))],
@@ -577,7 +582,8 @@ document.addEventListener('keydown', (event) => {
       if (at != null) { event.preventDefault(); pasteBlock(at); return; }
     }
   }
-  if (inField || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (inField || event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
+  if (document.querySelector('dialog[open], [aria-modal="true"]:not([hidden])')) return;
 
   if (PAGE_KEYS[event.key]) {
     event.preventDefault();
@@ -586,6 +592,7 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     focusNewTask();
   } else if (event.key === ' ' && state.page === 'focus') {
+    if (el?.closest('button, a[href], summary, [tabindex], [role="button"], [role="link"], [role="checkbox"], [role="slider"]')) return;
     event.preventDefault();
     const open = state.view?.openFocus;
     if (!open) void commands.start();
@@ -679,6 +686,14 @@ function blockOf(el) {
   return id ? state.view?.scheduled.find((b) => b.id === id) : undefined;
 }
 
+async function removeBlock(block, message) {
+  if (!block) return;
+  const { id, taskId, startsAt, plannedSeconds } = block;
+  if (await run(() => api.command({ type: 'removeSchedule', blockId: id }))) {
+    notify(message, '', () => saveBlock({ id, taskId, startsAt, plannedSeconds }, '已恢复时间块'));
+  }
+}
+
 function copyBlock(block) {
   blockClip = { taskId: block.taskId, title: block.task.title, plannedSeconds: block.plannedSeconds };
   notify(`已复制「${block.task.title}」，在时间轴空白处右键或按 Ctrl+V 粘贴`);
@@ -742,7 +757,7 @@ registerContextMenu('#plannerGrid .planner-block', (target) => {
       { exclude: block.id, after: block.startsAt + block.plannedSeconds }, '已移到') },
     '-',
     { label: '删除时间块', icon: '×', danger: true,
-      run: () => run(() => api.command({ type: 'removeSchedule', blockId: block.id }), { success: '已删除时间块' }) },
+      run: () => removeBlock(block, '已删除时间块') },
   ];
 });
 

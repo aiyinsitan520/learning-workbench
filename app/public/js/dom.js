@@ -33,17 +33,37 @@ export function prefersReducedMotion() {
 
 let toastTimer;
 /** 底部提示条；kind = 'bad' 表示失败。 */
-export function notify(message, kind = '') {
+export function notify(message, kind = '', undo) {
   const el = $('#toast');
   el.textContent = message;
   el.className = `on ${kind}`.trim();
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.className = ''; }, 2400);
+  if (undo) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = '撤销';
+    button.onclick = undo;
+    el.append(button);
+  }
+  toastTimer = setTimeout(() => { el.className = ''; el.replaceChildren(); }, undo ? 6000 : 2400);
 }
 
-export function modal(html) {
+export function modal(html, { dismissBackdrop } = {}) {
+  const dialog = $('#dialog');
   $('#dialogBody').innerHTML = html;
-  $('#dialog').showModal();
+  // 遮罩事件的 target 也是 dialog。只在按下和释放都落在弹窗边界外时关闭。
+  function outside(event) {
+    const rect = dialog.getBoundingClientRect();
+    return event.target === dialog && (event.clientX < rect.left || event.clientX >= rect.right
+      || event.clientY < rect.top || event.clientY >= rect.bottom);
+  }
+  let pressedOutside = false;
+  dialog.onpointerdown = dismissBackdrop ? (event) => { pressedOutside = outside(event); } : null;
+  dialog.onclick = dismissBackdrop ? (event) => {
+    if (pressedOutside && outside(event) && dismissBackdrop()) dialog.close();
+    pressedOutside = false;
+  } : null;
+  dialog.showModal();
 }
 
 export function closeDialog() {

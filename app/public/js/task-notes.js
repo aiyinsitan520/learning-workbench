@@ -610,6 +610,21 @@ export function bindTaskNotes(main, renameTask) {
     render,
     leave,
     focus() {
+      if (window.matchMedia('(max-width: 830px)').matches) {
+        const editor = main.querySelector('#taskEditor');
+        const taskId = current?.id;
+        // 等路由完成滚动位置还原，再定位显式打开的正文。
+        requestAnimationFrame(() => {
+          if (!editor?.isConnected || current?.id !== taskId) return;
+          const top = editor.getBoundingClientRect().top;
+          const header = document.querySelector('header.macbar').getBoundingClientRect().bottom;
+          const bodyTop = main.querySelector('#taskNoteBody')?.getBoundingClientRect().top;
+          if (top < header || bodyTop >= innerHeight) {
+            window.scrollTo({ top: scrollY + top - header - 8,
+              behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+          }
+        });
+      }
       if (current?.loaded) main.querySelector('#taskNoteBody').focus({ preventScroll: true });
       else focusWhenReady = current?.id;
     },
