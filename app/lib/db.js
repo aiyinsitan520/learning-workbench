@@ -1,6 +1,7 @@
 // 学习工作台数据层：把 architecture/schema.sql 落成可用的仓储。
 // 只用 Node 内置 node:sqlite，零第三方依赖。
 
+import { compatibleReviewHash } from './digest.js';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, mkdirSync, readdirSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -253,42 +254,63 @@ class Workbench {
    */
   readProjects(day, timeZone = this.timeZone) {
     if (!isValidDate(day)) throw invalid(`日期格式应为 YYYY-MM-DD：${day}`);
-    const { start, end } = dayRange(day, timeZone);
-    const rows = this.#all(
-      'SELECT * FROM projects WHERE archived_at IS NULL AND start_day <= ?'
-        + ' AND (completed_at IS NULL OR completed_at >= ?) ORDER BY COALESCE(due_day, \'9999\'), created_at, id',
-      day, start,
-    );
-    return rows.map((p) => {
-      const focus = this.#one(
-        "SELECT COALESCE(SUM(f.elapsed_seconds),0) AS total,"
-          + " COALESCE(SUM(CASE WHEN f.started_at >= ? AND f.started_at < ? THEN f.elapsed_seconds END),0) AS onDay"
-          + " FROM focus_sessions f JOIN tasks t ON t.id = f.task_id"
-          + " WHERE t.project_id = ? AND f.state = 'finished' AND f.started_at < ?",
-        start, end, p.id, end,
-      );
-      const tasks = this.#one(
-        'SELECT COUNT(*) AS n, COUNT(completed_at) AS done FROM tasks WHERE project_id = ? AND id <> ?',
-        p.id, p.main_task_id,
-      );
-      const log = this.#one('SELECT * FROM project_logs WHERE project_id = ? AND day = ?', p.id, day);
-      const last = this.#one(
-        'SELECT * FROM project_logs WHERE project_id = ? AND day < ? ORDER BY day DESC LIMIT 1', p.id, day,
-      );
-      return {
-        ...mapProject(p),
-        dayIndex: daysBetween(p.start_day, day) + 1,
-        totalDays: p.due_day ? daysBetween(p.start_day, p.due_day) + 1 : null,
-        daysLeft: p.due_day ? daysBetween(day, p.due_day) : null,
-        focusSecondsOnDay: Number(focus.onDay),
-        focusSecondsTotal: Number(focus.total),
-        taskCount: Number(tasks.n),
-        doneTaskCount: Number(tasks.done),
-        harvestCount: this.#one('SELECT COUNT(*) AS n FROM harvests WHERE project_id = ?', p.id).n,
-        log: log ? mapProjectLog(log) : null,
-        lastLog: last ? mapProjectLog(last) : null,
-      };
-    });
+    return this.readProjectDays([{ day, ...dayRange(day, timeZone) }]).get(day);
+  }
+
+  /** 连续日期共用项目、任务数、卡片数与区间开始前的专注/日志基线。 */
+  readProjectDays(windows) {
+    const first = windows[0], last = windows.at(-1);
+    const projects = this.#all(`
+      WITH task_counts AS (
+        SELECT t.project_id, COUNT(*) AS n, COUNT(t.completed_at) AS done
+        FROM tasks t JOIN projects p ON p.id = t.project_id
+        WHERE t.id <> p.main_task_id GROUP BY t.project_id
+      ), cards AS (SELECT project_id, COUNT(*) AS n FROM harvests GROUP BY project_id)
+      SELECT p.*, COALESCE(t.n,0) AS taskCount, COALESCE(t.done,0) AS doneTaskCount,
+        COALESCE(h.n,0) AS harvestCount
+      FROM projects p LEFT JOIN task_counts t ON t.project_id=p.id LEFT JOIN cards h ON h.project_id=p.id
+      WHERE p.archived_at IS NULL AND p.start_day <= ? AND (p.completed_at IS NULL OR p.completed_at >= ?)
+      ORDER BY COALESCE(p.due_day,'9999'), p.created_at, p.id`, last.day, first.start);
+    const days = new Map(windows.map(w => [w.day, []]));
+    if (!projects.length) return days;
+
+    const totals = new Map(this.#all(`
+      SELECT t.project_id, SUM(f.elapsed_seconds) AS seconds FROM focus_sessions f JOIN tasks t ON t.id=f.task_id
+      WHERE f.state='finished' AND f.started_at < ? AND t.project_id IS NOT NULL GROUP BY t.project_id`,
+    first.start).map(r => [r.project_id, r.seconds]));
+    const focus = Map.groupBy(this.#all(`
+      WITH days AS MATERIALIZED (SELECT value->>'day' AS day, value->>'start' AS start, value->>'end' AS end FROM json_each(?))
+      SELECT days.day, t.project_id, SUM(f.elapsed_seconds) AS seconds
+      FROM focus_sessions f JOIN tasks t ON t.id=f.task_id JOIN days ON f.started_at >= days.start AND f.started_at < days.end
+      WHERE f.state='finished' AND f.started_at >= ? AND f.started_at < ? AND t.project_id IS NOT NULL
+      GROUP BY days.day, t.project_id`, JSON.stringify(windows), first.start, last.end), r => r.day);
+    const previousLogs = new Map(this.#all(`
+      SELECT l.* FROM projects p JOIN project_logs l ON l.project_id=p.id AND l.day=(
+        SELECT MAX(day) FROM project_logs WHERE project_id=p.id AND day < ?)`, first.day)
+      .map(r => [r.project_id, mapProjectLog(r)]));
+    const logs = Map.groupBy(this.#all('SELECT * FROM project_logs WHERE day BETWEEN ? AND ?', first.day, last.day), r => r.day);
+
+    for (const { day, start } of windows) {
+      const onDay = new Map((focus.get(day) ?? []).map(r => [r.project_id, r.seconds]));
+      const todayLogs = new Map((logs.get(day) ?? []).map(r => [r.project_id, mapProjectLog(r)]));
+      for (const p of projects) {
+        const seconds = onDay.get(p.id) ?? 0;
+        const total = (totals.get(p.id) ?? 0) + seconds;
+        totals.set(p.id, total);
+        if (p.start_day > day || (p.completed_at != null && p.completed_at < start)) continue;
+        days.get(day).push({
+          ...mapProject(p),
+          dayIndex: daysBetween(p.start_day, day) + 1,
+          totalDays: p.due_day ? daysBetween(p.start_day, p.due_day) + 1 : null,
+          daysLeft: p.due_day ? daysBetween(day, p.due_day) : null,
+          focusSecondsOnDay: seconds, focusSecondsTotal: total,
+          taskCount: p.taskCount, doneTaskCount: p.doneTaskCount, harvestCount: p.harvestCount,
+          log: todayLogs.get(p.id) ?? null, lastLog: previousLogs.get(p.id) ?? null,
+        });
+      }
+      for (const [id, log] of todayLogs) previousLogs.set(id, log);
+    }
+    return days;
   }
 
   /** 新建长期项目，同时建它的主任务（course='长期项目'）。同 ID 同内容可安全重试。 */
@@ -392,9 +414,9 @@ class Workbench {
 
   /** 全部项目（含已完成、已归档），供 AI 读取与导出。 */
   listProjects() {
-    return this.#all('SELECT * FROM projects ORDER BY created_at, id').map((p) => ({
-      ...mapProject(p),
-      logs: this.#all('SELECT * FROM project_logs WHERE project_id = ? ORDER BY day', p.id).map(mapProjectLog),
+    const logs = Map.groupBy(this.#all('SELECT * FROM project_logs ORDER BY project_id, day'), r => r.project_id);
+    return this.#all('SELECT * FROM projects ORDER BY created_at, id').map(p => ({
+      ...mapProject(p), logs: (logs.get(p.id) ?? []).map(mapProjectLog),
     }));
   }
 
@@ -441,27 +463,27 @@ class Workbench {
       'SELECT j.value AS tag, COUNT(*) AS count FROM harvests, json_each(harvests.tags) AS j'
         + ' GROUP BY j.value ORDER BY count DESC, j.value',
     ).map((r) => ({ tag: r.tag, count: Number(r.count) }));
-    return { harvests: rows.map((r) => this.#mapHarvest(r)), total, tags };
+    return { harvests: this.#mapHarvests(rows), total, tags };
   }
 
   readRandomHarvest() {
     const today = localDateOf(this.now(), this.timeZone);
     const due = this.#one('SELECT * FROM harvests WHERE next_review_day <= ? ORDER BY RANDOM() LIMIT 1', today);
     const row = due ?? this.#one('SELECT * FROM harvests ORDER BY RANDOM() LIMIT 1');
-    return row ? this.#mapHarvest(row) : null;
+    return row ? this.#mapHarvests([row])[0] : null;
   }
 
   /** 某天（按卡片的 day）存的收获，旧的在前。AI 回顾与数据快照用。 */
   readHarvestsOnDay(day) {
     if (!isValidDate(day)) throw invalid('日期格式应为 YYYY-MM-DD');
-    return this.#all('SELECT * FROM harvests WHERE day = ? ORDER BY created_at, rowid', day).map((r) => this.#mapHarvest(r));
+    return this.#mapHarvests(this.#all('SELECT * FROM harvests WHERE day = ? ORDER BY created_at, rowid', day));
   }
 
   readHarvest(id) {
     requireId(id, '收获 id');
     const row = this.#one('SELECT * FROM harvests WHERE id = ?', id);
     if (!row) throw missing(`收获 ${id} 不存在`);
-    return this.#mapHarvest(row);
+    return this.#mapHarvests([row])[0];
   }
 
   /** 新建收获卡片。同 ID 同内容视为成功（可安全重试），同 ID 不同内容报冲突。 */
@@ -469,11 +491,11 @@ class Workbench {
     projectId = null }) {
     requireId(id, '收获 id');
     const card = cleanHarvest({ title, conclusion, points, todos, tags, source, sourceUrl });
-    const cardDay = day ?? localDateOf(this.now(), this.timeZone);
-    if (!isValidDate(cardDay)) throw invalid('日期格式应为 YYYY-MM-DD');
+    if (day != null && !isValidDate(day)) throw invalid('日期格式应为 YYYY-MM-DD');
     if (projectId != null) requireId(projectId, '项目 id');
     return this.#tx(() => {
       const existing = this.#one('SELECT * FROM harvests WHERE id = ?', id);
+      const cardDay = day ?? existing?.day ?? localDateOf(this.now(), this.timeZone);
       const values = [cardDay, card.title, card.conclusion, JSON.stringify(card.points), JSON.stringify(card.todos),
         JSON.stringify(card.tags), card.source, card.sourceUrl, projectId ?? null];
       if (existing) {
@@ -627,20 +649,23 @@ class Workbench {
     });
   }
 
-  #mapHarvest(row) {
-    const todos = JSON.parse(row.todos).map((t) => {
-      const task = t.taskId ? this.#one('SELECT completed_at FROM tasks WHERE id = ?', t.taskId) : null;
-      return { text: t.text, taskId: task ? t.taskId : null, taskDone: Boolean(task && task.completed_at != null) };
-    });
-    return {
+  #mapHarvests(rows) {
+    const cards = rows.map(row => ({ row, todos: JSON.parse(row.todos) }));
+    const ids = new Set(cards.flatMap(card => card.todos.map(todo => todo.taskId).filter(Boolean)));
+    const tasks = ids.size ? new Map(this.#all(
+      'SELECT id, completed_at FROM tasks WHERE id IN (SELECT value FROM json_each(?))', JSON.stringify([...ids]),
+    ).map(task => [task.id, task.completed_at])) : new Map();
+    return cards.map(({ row, todos }) => ({
       id: row.id, day: row.day, title: row.title, conclusion: row.conclusion,
-      points: JSON.parse(row.points), todos, tags: JSON.parse(row.tags),
+      points: JSON.parse(row.points), todos: todos.map(({ text, taskId }) => ({
+        text, taskId: tasks.has(taskId) ? taskId : null, taskDone: tasks.get(taskId) != null,
+      })), tags: JSON.parse(row.tags),
       source: row.source, sourceUrl: row.source_url, projectId: row.project_id ?? null,
       taskId: row.task_id, starred: Boolean(row.starred),
       review: { count: row.review_count, lastAt: row.last_reviewed_at, nextDay: row.next_review_day },
       images: JSON.parse(row.images),
       createdAt: row.created_at, updatedAt: row.updated_at,
-    };
+    }));
   }
 
   // ---------------------------------------------------------------- 任务正文的每日变化（AI 回顾用）
@@ -656,19 +681,10 @@ class Workbench {
     const { start, end } = dayRange(day, timeZone);
     const cut = (s, n) => (s.length > n ? `${s.slice(0, n)}…（已截断）` : s);
     const out = [];
-    const edited = this.#all(
-      'SELECT d.task_id, d.body, t.title, t.course, t.project_id FROM task_note_days d JOIN tasks t ON t.id = d.task_id'
-        + ' WHERE d.day = ? ORDER BY d.updated_at',
-      day,
-    );
-    for (const row of edited) {
-      const prev = this.#one(
-        'SELECT body FROM task_note_days WHERE task_id = ? AND day < ? ORDER BY day DESC LIMIT 1', row.task_id, day,
-      );
-      const added = addedLines(prev?.body ?? '', row.body);
-      if (!added.trim()) continue;
+    for (const row of this.readEditedNotes(day, day)) {
+      const added = row.added;
       out.push({ taskId: row.task_id, title: row.title, course: row.course, projectId: row.project_id ?? null,
-        edited: true, firstTime: !prev, added: cut(added, perTask) });
+        edited: true, firstTime: row.previous == null, added: cut(added, perTask) });
     }
     const seen = new Set(out.map((n) => n.taskId));
     const touched = this.#all(
@@ -694,13 +710,22 @@ class Workbench {
     });
   }
 
+  readEditedNotes(from, to) {
+    return this.#all(`SELECT d.day, d.task_id, d.body, t.title, t.course, t.project_id,
+        (SELECT previous.body FROM task_note_days previous WHERE previous.task_id=d.task_id
+         AND previous.day < d.day ORDER BY previous.day DESC LIMIT 1) AS previous
+      FROM task_note_days d JOIN tasks t ON t.id=d.task_id
+      WHERE d.day BETWEEN ? AND ? ORDER BY d.updated_at`, from, to)
+      .map(r => ({ ...r, added: addedLines(r.previous ?? '', r.body) })).filter(r => r.added.trim());
+  }
+
   // ---------------------------------------------------------------- AI 回顾缓存
 
   readDailyReview(day) {
     if (!isValidDate(day)) throw invalid(`日期格式应为 YYYY-MM-DD：${day}`);
     const row = this.#one('SELECT * FROM daily_reviews WHERE day = ?', day);
     return row ? {
-      day: row.day, factsHash: row.facts_hash, text: row.text,
+      day: row.day, factsHash: compatibleReviewHash(this, day, row.facts_hash), text: row.text,
       provider: row.provider, model: row.model, createdAt: row.created_at,
     } : null;
   }
@@ -738,31 +763,27 @@ class Workbench {
     const [y, mo] = monthText.split('-').map(Number);
     if (mo < 1 || mo > 12) throw invalid(`非法月份：${monthText}`);
     const days = new Date(Date.UTC(y, mo, 0)).getUTCDate();
-    const out = [];
-    for (let d = 1; d <= days; d += 1) {
-      const day = `${monthText}-${String(d).padStart(2, '0')}`;
-      const { start, end } = dayRange(day, timeZone);
-      const t = this.#one(
-        'SELECT COUNT(*) AS n FROM tasks WHERE completed_at >= ? AND completed_at < ?', start, end,
-      );
-      const f = this.#one(
-        "SELECT COUNT(*) AS n, COALESCE(SUM(elapsed_seconds),0) AS s FROM focus_sessions"
-          + " WHERE state = 'finished' AND started_at >= ? AND started_at < ?", start, end,
-      );
-      const b = this.#one(
-        'SELECT COUNT(*) AS n FROM schedule_blocks WHERE starts_at >= ? AND starts_at < ?', start, end,
-      );
-      const note = this.#one('SELECT title FROM day_notes WHERE study_date = ?', day);
-      out.push({
-        day,
-        completedTasks: Number(t.n),
-        focusSessions: Number(f.n),
-        focusSeconds: Number(f.s),
-        scheduledBlocks: Number(b.n),
-        noteTitle: note?.title ?? '',
-      });
-    }
-    return out;
+    const windows = Array.from({ length: days }, (_, i) => {
+      const day = `${monthText}-${String(i + 1).padStart(2, '0')}`;
+      return { day, ...dayRange(day, timeZone) };
+    });
+    const start = windows[0].start, end = windows.at(-1).end;
+    // 午夜标记与事件一起排序。相同时间戳共用窗口，当天零点的事件归入新的一天。
+    return this.#all(`
+      WITH events(at, day, completed, sessions, seconds, blocks) AS (
+        SELECT value->>'start', value->>'day', 0, 0, 0, 0 FROM json_each(?)
+        UNION ALL SELECT completed_at, NULL, 1, 0, 0, 0 FROM tasks WHERE completed_at >= ? AND completed_at < ?
+        UNION ALL SELECT started_at, NULL, 0, 1, elapsed_seconds, 0 FROM focus_sessions
+          WHERE state='finished' AND started_at >= ? AND started_at < ?
+        UNION ALL SELECT starts_at, NULL, 0, 0, 0, 1 FROM schedule_blocks WHERE starts_at >= ? AND starts_at < ?
+      ), bucketed AS (
+        SELECT COALESCE(day, MAX(day) OVER (ORDER BY at RANGE UNBOUNDED PRECEDING)) AS day,
+          completed, sessions, seconds, blocks FROM events
+      )
+      SELECT b.day, SUM(b.completed) AS completedTasks, SUM(b.sessions) AS focusSessions,
+        SUM(b.seconds) AS focusSeconds, SUM(b.blocks) AS scheduledBlocks, COALESCE(n.title,'') AS noteTitle
+      FROM bucketed b LEFT JOIN day_notes n ON n.study_date=b.day GROUP BY b.day ORDER BY b.day`,
+    JSON.stringify(windows), start, end, start, end, start, end).map(row => ({ ...row }));
   }
 
   /** 某天已结束的专注明细（进行中的那一轮不在此列）。 */
@@ -897,6 +918,11 @@ class Workbench {
     const planned = requirePositiveInt(plannedSeconds, '计划秒数');
     if (taskId != null) requireId(taskId, '任务 id');
     return this.#tx(() => {
+      const existing = this.#one('SELECT task_id, planned_seconds FROM focus_sessions WHERE id = ?', id);
+      if (existing) {
+        if (existing.task_id === taskId && existing.planned_seconds === planned) return { ok: true };
+        throw conflict(`专注 ${id} 已存在且参数不同`);
+      }
       this.#settleExpired();
       const open = this.#one(
         "SELECT id FROM focus_sessions WHERE state IN ('running','paused') LIMIT 1",
@@ -931,10 +957,14 @@ class Workbench {
       if (Number(row.revision) !== expectedRevision) {
         throw conflict(`专注 ${id} 已被更新（当前版本 ${row.revision}）`);
       }
-      const now = this.now();
+      const now = Math.max(this.now(), row.state_changed_at);
       const state = row.state;
       if (state === 'finished') throw conflict('这一轮专注已经结束');
 
+      if (state === 'running' && now >= focusDeadline(row)) {
+        this.#writeState(row, { state: 'finished', elapsed: row.planned_seconds, now: focusDeadline(row) });
+        return { ok: true, state: 'finished', elapsedSeconds: row.planned_seconds };
+      }
       if (action === 'pause') {
         if (state !== 'running') throw conflict('只有进行中的专注可以暂停');
         const elapsed = this.#elapsedOf(row, now);
@@ -957,6 +987,8 @@ class Workbench {
 
   /** 到时未结束的会话按截止时刻结算，重复调用幂等。 */
   settleExpired() {
+    const running = this.#one("SELECT state_changed_at, planned_seconds, elapsed_seconds FROM focus_sessions WHERE state='running'");
+    if (!running || this.now() < focusDeadline(running)) return [];
     return this.#tx(() => this.#settleExpired());
   }
 
@@ -964,8 +996,7 @@ class Workbench {
     const open = this.#all("SELECT * FROM focus_sessions WHERE state = 'running'");
     const settled = [];
     for (const row of open) {
-      const deadline = Number(row.started_at) + Number(row.planned_seconds)
-        - Number(row.elapsed_seconds);
+      const deadline = focusDeadline(row);
       if (this.now() < deadline) continue;
       const elapsed = Number(row.planned_seconds);
       this.#writeState(row, { state: 'finished', elapsed, now: deadline });
@@ -1001,7 +1032,8 @@ class Workbench {
     if (!isValidDate(n.studyDate)) throw invalid(`日期格式应为 YYYY-MM-DD：${n.studyDate}`);
     requireId(n.id, '手记 id');
     const title = optionalText(n.title ?? '', '标题', 200);
-    const blocks = Array.isArray(n.blocks) ? n.blocks : [];
+    if (!Array.isArray(n.blocks)) throw invalid('手记 blocks 必须是数组');
+    const blocks = n.blocks;
     const seen = new Set();
     const rows = blocks.map((b, index) => {
       const row = normalizeBlock(b, index);
@@ -1241,6 +1273,10 @@ export function addedLines(before, after) {
 export function daysBetween(a, b) {
   const toUtc = (s) => Date.UTC(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)));
   return Math.round((toUtc(b) - toUtc(a)) / 86400000);
+}
+
+function focusDeadline(row) {
+  return row.state_changed_at + (row.planned_seconds - row.elapsed_seconds);
 }
 
 function mapFocus(row) {
