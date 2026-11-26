@@ -15,7 +15,9 @@ const sourceLabels = { local: '本机数据库', server: '服务器数据库' };
 const zoomFactors = [0.25, 0.33, 0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
 const windows = new Map();
 let sharedUrl = 'http://127.0.0.1:17322/';
-let sharedServicePort = 7321;
+// 远端服务只认自己端口的 Host（T-W1 起），隧道两端都是 17322，必须按同一端口发 Host/Origin。
+// 旧值 7321 会让服务器返回 403，桌面版于是退回到本机数据库并弹错（v1.3.1 及之前）。
+let sharedServicePort = Number(new URL(sharedUrl).port);
 let sharedProtocolInstalled = false;
 let activeSource;
 let preferencesPath;
