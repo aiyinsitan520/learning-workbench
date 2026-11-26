@@ -173,13 +173,30 @@ async function fetchShared(req) {
     return json(403, { code: 'remote-read-only' });
   }
 
+  // 页面文件（html/js/css/图片）与桌面版同版本，直接从本机内置服务读，只有 /api/ 走隧道。
+  // 隧道慢时（实测约 25 KB/s）以前要先下完约 4 MB 文件、窗口才出现，看起来像打不开。
+  const api = pathname === '/api' || pathname.startsWith('/api/');
+  if (!api && (req.method === 'GET' || req.method === 'HEAD') && service?.url) {
+    try {
+      return await fetch(new URL(pathname + search, service.url), { method: req.method, signal: req.signal });
+    } catch {
+      return json(502, { code: 'local-static-unavailable' });
+    }
+  }
+
   const host = '127.0.0.1:' + sharedServicePort;
   const headers = { ...Object.fromEntries(req.headers), host };
   if (sourceOrigin !== null) headers.origin = 'http://' + host;
   try {
     const incoming = await new Promise((resolve, reject) => {
-      const upstream = request(sharedUrl, { method: req.method, path: pathname + search, headers, signal: req.signal }, resolve);
-      upstream.once('error', reject);
+      const upstream = request(sharedUrl, { method: req.method, path: pathname + search, headers, signal: req.signal }, (res) => {
+        clearTimeout(stalled);
+        resolve(res);
+      });
+      // 隧道半断时请求会一直挂着，页面停在「正在读取…」。30 秒还没收到响应头就放弃，
+      // 页面会显示连不上的提示；已开始传输的大响应（如导出）不受这个限制。
+      const stalled = setTimeout(() => upstream.destroy(new Error('shared service timeout')), 30000);
+      upstream.once('error', (error) => { clearTimeout(stalled); reject(error); });
       if (req.body) Readable.fromWeb(req.body).on('error', error => upstream.destroy(error)).pipe(upstream);
       else upstream.end();
     });
