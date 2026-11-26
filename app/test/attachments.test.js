@@ -10,9 +10,9 @@ import { start } from '../server.js';
 const png = Buffer.from('89504e470d0a1a0a', 'hex');
 const limit = 10 * 1024 * 1024;
 
-async function fixture(t) {
+async function fixture(t, memory = false) {
   const dir = await mkdtemp(join(tmpdir(), 'workbench-attachments-'));
-  const { url, server } = await start({ dbPath: join(dir, 'test.db'), islandLauncher: null });
+  const { url, server } = await start({ dbPath: memory ? ':memory:' : join(dir, 'test.db'), islandLauncher: null });
   t.after(async () => {
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
@@ -26,6 +26,36 @@ async function fixture(t) {
   }
   return { url, dir, origin, post };
 }
+
+test('remote import enforces origin, private-address and bounded JSON rules at the route', async t => {
+  const { url, origin } = await fixture(t);
+  const privateUrl = JSON.stringify({ url: url + 'x.png' });
+  const post = (body, headers) => fetch(url + 'api/attachments/fetch', {
+    method: 'POST', body, headers: { origin, 'Content-Type': 'application/json', ...headers },
+  });
+  for (const [body, headers, status, code] of [
+    [privateUrl, {}, 403, 'blocked-address'],
+    [privateUrl, { origin: 'https://other.invalid' }, 403, 'forbidden'],
+    [privateUrl, { 'Content-Type': 'text/plain' }, 400, 'invalid-url'],
+    ['{', {}, 400, 'invalid-url'], ['{}', {}, 400, 'invalid-url'],
+    [JSON.stringify({ url: 'https://image.invalid/' + 'x'.repeat(2048) }), {}, 400, 'invalid-url'],
+    [privateUrl.padEnd(4096), {}, 403, 'blocked-address'],
+    [privateUrl.padEnd(4097), {}, 413, 'attachment-too-large'],
+  ]) {
+    const response = await post(body, headers);
+    assert.equal(response.status, status);
+    assert.deepEqual(await response.json(), { code });
+  }
+});
+
+test('remote import needs a data folder before contacting the source', async t => {
+  const { url } = await fixture(t, true);
+  const response = await fetch(url + 'api/attachments/fetch', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }),
+  });
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { code: 'no-data-folder' });
+});
 
 test('concurrent uploads deduplicate across requests and return the original bytes with safe headers', async t => {
   const { post, dir, origin } = await fixture(t);

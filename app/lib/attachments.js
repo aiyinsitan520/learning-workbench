@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-const LIMIT = 10 * 1024 * 1024;
+export const IMAGE_LIMIT = 10 * 1024 * 1024;
 const ID = /^[0-9a-f]{64}\.(png|jpg|webp|gif)$/;
 const FORMATS = {
   'image/png': { ext: 'png', matches: bytes => bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex')) },
@@ -12,27 +12,35 @@ const FORMATS = {
   'image/gif': { ext: 'gif', matches: bytes => ['GIF87a', 'GIF89a'].includes(bytes.toString('latin1', 0, 6)) },
 };
 
+export function detectImageType(bytes) {
+  return Object.keys(FORMATS).find(type => FORMATS[type].matches(bytes));
+}
+
 export async function uploadAttachment(req, dataDir) {
   const type = req.headers['content-type']?.toLowerCase();
   const format = Object.hasOwn(FORMATS, type) ? FORMATS[type] : null;
   if (!format) return { status: 415, body: { code: 'unsupported-media-type' } };
   if (!dataDir) return { status: 409, body: { code: 'no-data-folder' } };
   const tooLarge = { status: 413, body: { code: 'attachment-too-large' } };
-  if (Number(req.headers['content-length']) > LIMIT) return tooLarge;
+  if (Number(req.headers['content-length']) > IMAGE_LIMIT) return tooLarge;
   const chunks = [];
   let size = 0;
   for await (const chunk of req.iterator({ destroyOnReturn: false })) {
     size += chunk.length;
-    if (size > LIMIT) return tooLarge;
+    if (size > IMAGE_LIMIT) return tooLarge;
     chunks.push(chunk);
   }
   const bytes = Buffer.concat(chunks, size);
   if (!format.matches(bytes)) return { status: 415, body: { code: 'invalid-image' } };
+  return storeAttachment(bytes, type, dataDir);
+}
+
+export async function storeAttachment(bytes, type, dataDir) {
   const hash = createHash('sha256').update(bytes).digest('hex');
-  const id = hash + '.' + format.ext;
+  const id = hash + '.' + FORMATS[type].ext;
   const folder = join(dataDir, 'attachments', hash.slice(0, 2));
   const destination = join(folder, id);
-  const result = { status: 200, body: { id, url: '/api/attachments/' + id, bytes: size, type } };
+  const result = { status: 200, body: { id, url: '/api/attachments/' + id, bytes: bytes.length, type } };
   try {
     if ((await stat(destination)).isFile()) return result;
   } catch (error) {

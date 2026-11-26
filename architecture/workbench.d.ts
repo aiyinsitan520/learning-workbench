@@ -363,7 +363,12 @@ export interface Harvest {
  *   与 openHarvestCapture(ctx, text?)（粘贴框；全局 Ctrl/⌘+Shift+V 在非输入框时调用）。样式在 harvest.css，只用令牌。
  */
 
-/** POST /api/attachments 接收原始图片字节，GET url 读取原图。 */
+/** POST /api/attachments/fetch 接收 JSON（≤4 KiB）。每个 URL ≤2048 字符，仅支持公网 HTTP(S)。 */
+export interface FetchAttachmentRequest {
+  url: string;
+}
+
+/** POST /api/attachments 接收原始图片字节。两个 POST 接口均返回 Attachment，GET url 读取原图。 */
 export interface Attachment {
   id: string; // 小写 SHA-256 加 .png、.jpg、.webp 或 .gif
   url: string; // /api/attachments/<id>

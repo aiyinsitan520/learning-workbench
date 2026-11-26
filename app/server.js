@@ -19,7 +19,8 @@ import { readFileSync } from 'node:fs';
 import { createStorage, prepareStorage, resolveStorage } from './lib/storage.js';
 import { createLive } from './lib/live.js';
 import { createObsidian, detectObsidianVaults } from './lib/obsidian.js';
-import { readAttachment, uploadAttachment } from './lib/attachments.js';
+import { readAttachment, storeAttachment, uploadAttachment } from './lib/attachments.js';
+import { fetchRemoteImage, readImageUrl, RemoteImageError } from './lib/remote-image.js';
 import { createSourceUpdate, prepareSourceRestart } from './lib/source-update.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -112,6 +113,21 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
         return;
       }
       const rawPath = (req.url ?? '/').split('?', 1)[0];
+      if (req.method === 'POST' && rawPath === '/api/attachments/fetch') {
+        try {
+          const url = await readImageUrl(req);
+          if (!location.dataDir) throw new RemoteImageError(409, 'no-data-folder');
+          const { bytes, type } = await fetchRemoteImage(url);
+          const { status, body } = await storeAttachment(bytes, type, location.dataDir);
+          sendJson(res, status, body);
+        } catch (error) {
+          if (!(error instanceof RemoteImageError)) throw error;
+          sendJson(res, error.status, { code: error.code });
+        } finally {
+          if (!req.complete) req.resume();
+        }
+        return;
+      }
       if (req.method === 'POST' && rawPath === '/api/attachments') {
         const { status, body } = await uploadAttachment(req, location.dataDir);
         if (!req.complete) req.resume();

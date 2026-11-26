@@ -57,6 +57,10 @@ Windows 可以通过 `curl.exe -fsS "http://127.0.0.1:17321/api/context?days=30&
 
 任务正文的图片使用 Markdown 引用 `![图片说明](/api/attachments/<id>)`。SQLite 和正文导出保存链接，原图位于当前数据文件夹的 `attachments/<sha256前2位>/<id>` 中。
 
+图文粘贴把 HTML 段落、列表和图片按顺序写入正文。`POST /api/attachments` 接收原始图片，`POST /api/attachments/fetch` 接收 `application/json`，请求体 ≤4 KiB，形如 `{"url":"https://example.com/image.png"}`（网址 ≤2048 字符）。两个接口共享内容去重，成功都返回 `{id,url,bytes,type}`。代取只接受公网 HTTP(S)，最多跟随 3 次重定向，总限时 10 秒，单张 ≤10 MiB。类型按 PNG、JPEG、WebP、GIF 的文件头判断。
+
+代取错误通过 HTTP 状态和 `code` 返回。400 `invalid-url` 表示请求或网址无效，403 `blocked-address` 表示目标地址受限，409 `no-data-folder` 表示缺少数据文件夹，413 `attachment-too-large` 表示超限，415 `invalid-image` 表示图片格式无效，502 `fetch-failed` 和 504 `fetch-timeout` 分别表示取图失败和超时。远程数据库模式依赖服务端到图床的网络。防盗链图床可能返回错误或一张有效的替代图。
+
 ## Obsidian 单向导出
 
 启用后，`<dataDir>/obsidian.json` 保存配置。仓库内默认的 `学习工作台/` 下有日计划、任务正文、收获、长期项目与附件五个目录，按实际导出的内容创建。Markdown 属性有 `workbench_id`、`type`、`day`、`updated`、`tags`。关联记录使用仓库内双链，图片以相对路径引用同一次导出的附件。与上方 AI 快照接口独立，Obsidian 导出按设置中勾选的类别导出整个库的记录。

@@ -7,6 +7,101 @@ const IMAGE_LIMIT = 10 * 1024 * 1024;
 const UPLOADING = '![上传中…]()';
 const IMAGE_PATH = /^\/api\/attachments\/[0-9a-f]{64}\.(?:png|jpg|webp|gif)$/;
 const IMAGE_TYPE = /^image\/(?:png|jpeg|webp|gif)$/;
+const INLINE_IMAGE = /^data:(image\/(?:png|jpeg|webp|gif));base64,/i;
+const HTML_IMAGE_LIMIT = 20;
+
+function clipboardImages(data) {
+  if (!data) return [];
+  const files = Array.from(data.files).filter(file => file.type.startsWith('image/'));
+  if (files.length) return files;
+  return Array.from(data.items)
+    .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+    .map(item => item.getAsFile()).filter(Boolean);
+}
+
+function htmlHasText(html) {
+  if (!html) return false;
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  template.content.querySelectorAll('script,style').forEach(node => node.remove());
+  return Boolean(template.content.textContent.trim());
+}
+
+function clipboardArticle(html) {
+  if (!html) return null;
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  if (!template.content.querySelector('img')) return null;
+  const lines = [];
+  let line = '', listPrefix = '', readable = 0, unreadable = 0;
+  function endLine(force = false) {
+    const text = line.replace(/\s+/g, ' ').trim();
+    if (text) {
+      lines.push(listPrefix + text);
+      listPrefix = '';
+    } else if (force && lines.length && lines.at(-1) !== '') {
+      lines.push('');
+    }
+    line = '';
+  }
+  function visit(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      line += node.data;
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = node.localName;
+    if (tag === 'script' || tag === 'style') return;
+    if (tag === 'br') return endLine(true);
+    if (tag === 'img') {
+      const src = (node.getAttribute('src') || '').trim();
+      if (!INLINE_IMAGE.test(src) && !/^https?:\/\//i.test(src)) {
+        unreadable++;
+      } else if (++readable <= HTML_IMAGE_LIMIT) {
+        endLine();
+        lines.push({ src, alt: node.getAttribute('alt') || '图片' });
+      }
+      return;
+    }
+    const block = /^(p|div|li|h[1-6]|tr|blockquote|pre|section|article)$/.test(tag);
+    if (block) endLine();
+    if (tag === 'li') listPrefix = '- ';
+    for (const child of node.childNodes) visit(child);
+    if (block) endLine();
+    if (tag === 'li') listPrefix = '';
+  }
+  for (const child of template.content.childNodes) visit(child);
+  endLine();
+  if (lines.at(-1) === '') lines.pop();
+  return { lines, readable, unreadable };
+}
+
+async function uploadImage(image) {
+  let file = image;
+  let endpoint = '/api/attachments';
+  let body, type;
+  if (image.src && !INLINE_IMAGE.test(image.src)) {
+    endpoint += '/fetch';
+    type = 'application/json';
+    body = JSON.stringify({ url: image.src });
+  } else {
+    if (image.src) {
+      const [header, mime] = INLINE_IMAGE.exec(image.src);
+      if (image.src.length - header.length > 4 * Math.ceil(IMAGE_LIMIT / 3)) throw new Error();
+      const bytes = Uint8Array.from(atob(image.src.slice(header.length)), char => char.charCodeAt(0));
+      file = new Blob([bytes], { type: mime.toLowerCase() });
+    }
+    if (!IMAGE_TYPE.test(file.type) || file.size > IMAGE_LIMIT) throw new Error();
+    type = file.type;
+    body = file;
+  }
+  const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': type }, body });
+  if (!response.ok) throw new Error();
+  const { url } = await response.json();
+  if (!IMAGE_PATH.test(url)) throw new Error();
+  const alt = (image.alt || image.name || '图片').replace(/[\[\]\r\n]/g, '').slice(0, 120) || '图片';
+  return '![' + alt + '](' + url + ')';
+}
 
 function imageToken(alt, url) {
   return { alt, url: IMAGE_PATH.test(url) ? url : null };
@@ -133,43 +228,49 @@ export function bindTaskNotes(main, renameTask) {
     entry.timer = setTimeout(() => flush(entry), SAVE_DELAY);
   }
 
-  async function insertImages(entry, area, files) {
-    if (!entry.loaded || area.hidden || !files.length) return;
+  async function insertImages(entry, area, parts, article = null) {
+    if (!entry.loaded || area.hidden || !parts.length) return;
     if (entry.upload) {
-      entry.upload.files.push(...files);
+      if (article) {
+        entry.imageStatus = '上一批图片还在上传，稍候再按一次 Ctrl+V';
+        syncImages(entry);
+      } else {
+        entry.upload.parts.push(...parts);
+      }
       return;
     }
     const offset = area.selectionStart;
+    const end = article ? area.selectionEnd : offset;
     const marker = UPLOADING;
-    if (entry.body.length + marker.length > BODY_LIMIT) {
+    if (entry.body.length - (end - offset) + marker.length > BODY_LIMIT) {
       entry.imageStatus = '正文已接近 32000 字上限，无法插入图片。';
       syncImages(entry);
       return;
     }
-    const upload = { offset, marker, files };
+    const upload = { offset, marker, parts, selectedText: entry.body.slice(offset, end) };
     entry.upload = upload;
     entry.imageStatus = '正在上传图片…';
-    area.setRangeText(marker, offset, offset, 'end');
+    area.setRangeText(marker, offset, end, 'end');
     updateBody(entry, area.value);
-    const links = [];
-    let rejected = 0;
-    for (const file of files) {
+    const lines = [];
+    let rejected = article?.unreadable || 0;
+    for (const part of parts) {
+      if (typeof part === 'string') {
+        lines.push({ text: part });
+        continue;
+      }
       try {
-        if (!IMAGE_TYPE.test(file.type) || file.size > IMAGE_LIMIT) throw new Error();
-        const response = await fetch('/api/attachments', {
-          method: 'POST', headers: { 'Content-Type': file.type }, body: file,
-        });
-        if (!response.ok) throw new Error();
-        const { url } = await response.json();
-        if (!IMAGE_PATH.test(url)) throw new Error();
-        const alt = file.name.replace(/[\[\]\r\n]/g, '').slice(0, 120) || '图片';
-        links.push('![' + alt + '](' + url + ')');
+        lines.push({ text: await uploadImage(part), image: true });
       } catch {
         rejected++;
       }
     }
     entry.upload = null;
-    entry.imageStatus = rejected ? '有 ' + rejected + ' 张图片上传失败。支持 PNG、JPEG、WebP、GIF，单张最多 10 MiB。' : '';
+    const notices = [];
+    if (rejected) notices.push(article ? '有 ' + rejected + ' 张图片没取到（网址打不开或不是 PNG/JPEG/WebP/GIF）'
+      : '有 ' + rejected + ' 张图片上传失败。支持 PNG、JPEG、WebP、GIF，单张最多 10 MiB。');
+    if (article?.readable > HTML_IMAGE_LIMIT) notices.push('一次最多插入 20 张图片，超出的图片请分批粘贴。');
+    entry.imageStatus = notices.join(' ');
     if (upload.offset === null) {
       updateBody(entry, entry.body);
       return;
@@ -179,18 +280,26 @@ export function bindTaskNotes(main, renameTask) {
     const available = BODY_LIMIT - (entry.body.length - marker.length);
     const before = entry.body.slice(0, from);
     const after = entry.body.slice(to);
-    const suffix = after && !after.startsWith('\n') ? '\n' : '';
     let replacement = '';
-    for (const link of links) {
-      const newline = replacement || (before && !before.endsWith('\n')) ? '\n' : '';
-      const next = replacement + newline + link;
-      if (next.length + suffix.length > available) {
-        entry.imageStatus = '正文已接近 32000 字上限，部分图片无法插入。';
+    let lastImage = false;
+    for (const { text, image } of lines) {
+      if (!text && (!replacement || replacement.endsWith('\n'))) continue;
+      const newline = replacement || (image && before && !before.endsWith('\n')) ? '\n' : '';
+      const boundary = image && after && !after.startsWith('\n') ? 1 : 0;
+      const room = available - replacement.length - newline.length;
+      if (text.length + boundary > room) {
+        if (!image && room > 0) {
+          replacement += newline + text.slice(0, room);
+          lastImage = false;
+        }
+        notices.push('正文已接近 32000 字上限，部分内容无法插入。');
+        entry.imageStatus = notices.join(' ');
         break;
       }
-      replacement = next;
+      replacement += newline + text;
+      lastImage = image;
     }
-    if (replacement) replacement += suffix;
+    if (lastImage && after && !after.startsWith('\n')) replacement += '\n';
     if (current === entry) {
       main.querySelector('#taskNoteBody').setRangeText(replacement, from, to, 'preserve');
     }
@@ -207,7 +316,7 @@ export function bindTaskNotes(main, renameTask) {
     const key = DRAFT_PREFIX + entry.id;
     const upload = entry.upload;
     const body = upload && upload.offset !== null
-      ? entry.body.slice(0, upload.offset) + entry.body.slice(upload.offset + upload.marker.length)
+      ? entry.body.slice(0, upload.offset) + upload.selectedText + entry.body.slice(upload.offset + upload.marker.length)
       : entry.body;
     try {
       if (body === entry.savedBody && !entry.request) {
@@ -383,12 +492,12 @@ export function bindTaskNotes(main, renameTask) {
           </div>
         </div>
         <div class="task-note-tools">
-          <button type="button" class="light" id="insertTaskNoteImage">插入图片</button>
+          <button type="button" class="light" id="insertTaskNoteImage">从文件插图</button>
           <input type="file" id="taskNoteImageFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
           <button type="button" class="light" id="toggleTaskNotePreview" aria-pressed="false">预览</button>
           <span id="taskNoteImageStatus" role="status"></span>
         </div>
-        <textarea id="taskNoteBody" aria-label="任务正文" maxlength="32000" placeholder="写点什么…"></textarea>
+        <textarea id="taskNoteBody" aria-label="任务正文" maxlength="32000" placeholder="写点什么… 复制图片后，在这里按 Ctrl+V（Mac 用 ⌘V）即可插图。"></textarea>
         <div id="taskNotePreview" class="task-note-preview" aria-label="正文预览" hidden></div>
         <div id="taskNoteImages" class="task-note-images" aria-label="正文图片" hidden></div>
         <dialog id="taskNoteImageDialog" class="task-note-image-dialog" aria-label="正文大图">
@@ -414,12 +523,24 @@ export function bindTaskNotes(main, renameTask) {
       main.querySelector('#toggleTaskNotePreview').onclick = () => {
         entry.preview = !entry.preview;
         syncImages(entry);
+        if (!entry.preview) area.focus({ preventScroll: true });
       };
       area.onpaste = event => {
-        const files = [...event.clipboardData.files].filter(file => file.type.startsWith('image/'));
-        if (!files.length) return;
-        event.preventDefault();
-        void insertImages(entry, area, files);
+        const files = clipboardImages(event.clipboardData);
+        // Excel、Word 复制文字时会附带整段内容的位图；HTML 里有文字就按文字处理，不上传这张位图。
+        if (files.length && !htmlHasText(event.clipboardData.getData('text/html'))) {
+          event.preventDefault();
+          void insertImages(entry, area, files);
+          return;
+        }
+        const article = clipboardArticle(event.clipboardData?.getData('text/html'));
+        if (article?.readable) {
+          event.preventDefault();
+          void insertImages(entry, area, article.lines, article);
+        } else if (article?.unreadable) {
+          entry.imageStatus = '有 ' + article.unreadable + ' 张图片来自本机文件，网页读不到，请用「从文件插图」或拖入';
+          syncImages(entry);
+        }
       };
       area.ondragover = event => {
         if (event.dataTransfer.types.includes('Files')) event.preventDefault();
