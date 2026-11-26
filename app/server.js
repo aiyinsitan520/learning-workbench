@@ -41,6 +41,8 @@ const MIME = {
 };
 
 const BODY_LIMIT = 512 * 1024;
+const IMPORT_LIMIT = 64 * 1024 * 1024;
+const RESTART_MESSAGE = '数据已搬到新位置，请重启工作台后再保存';
 const STORAGE_POSTS = new Set(['/api/storage/backup', '/api/storage/reveal', '/api/storage/pick-folder',
   '/api/storage/relocate', '/api/restart', '/api/update', '/api/obsidian/config', '/api/obsidian/export']);
 // 顺序即导入顺序：被引用的表在前。AI 密钥不在库里（app/data/ai-providers.json），不会被导出。
@@ -99,7 +101,27 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
       return restartSource();
     } : null;
 
+  let writesBlocked = false;
+  let writers = 0;
+  let drained;
+  // 附件上传与 AI 回顾可能跨 await 写入；等已接收的请求结束再复制。
+  async function relocate(dataDir, mode) {
+    if (writesBlocked) throw new WorkbenchError('restart-required', RESTART_MESSAGE);
+    if (mode !== 'copy') return storage.relocate(dataDir, mode);
+    writesBlocked = true;
+    try {
+      if (writers) await new Promise(resolve => { drained = resolve; });
+      return storage.relocate(dataDir, mode);
+    } catch (error) {
+      writesBlocked = false;
+      throw error;
+    } finally {
+      drained = undefined;
+    }
+  }
+
   const server = createServer(async (req, res) => {
+    let admitted = false;
     try {
       const host = req.headers.host;
       const port = req.socket.localPort;
@@ -113,6 +135,17 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
         return;
       }
       const rawPath = (req.url ?? '/').split('?', 1)[0];
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      if (req.method === 'POST' && url.pathname.startsWith('/api/') && url.pathname !== '/api/restart'
+        && url.pathname !== '/api/storage/relocate') {
+        if (writesBlocked) {
+          req.resume();
+          sendJson(res, 409, { ok: false, reason: 'restart-required', message: RESTART_MESSAGE });
+          return;
+        }
+        writers += 1;
+        admitted = true;
+      }
       if (req.method === 'POST' && rawPath === '/api/attachments/fetch') {
         try {
           const url = await readImageUrl(req);
@@ -150,15 +183,20 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
         res.end(image.bytes);
         return;
       }
-      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (url.pathname.startsWith('/api/')) {
         await handleApi(workbench, req, res, url, publicDir, ai, island, updater,
-          { storage, live, pickFolder, restart: serviceRestart, updateClients, obsidian });
+          { storage, live, pickFolder, restart: serviceRestart, updateClients, obsidian, relocate,
+            canSettle: () => !writesBlocked });
         return;
       }
       await serveStatic(req, res, url.pathname, publicDir, projectDir);
     } catch (err) {
       sendJson(res, 500, { ok: false, reason: 'storage', message: String(err?.message ?? err) });
+    } finally {
+      if (admitted) {
+        writers -= 1;
+        if (writers === 0) drained?.();
+      }
     }
   });
 
@@ -170,16 +208,18 @@ export function createWorkbenchServer({ dbPath, timeZone = 'Asia/Shanghai', root
     return close(...args);
   };
 
-  server.on('close', () => {
+  let disposed = false;
+  function dispose() {
+    if (disposed) return;
+    disposed = true;
+    obsidian.close();
+    live.close();
     updater.stopSchedule();
-    try {
-      workbench.close();
-    } catch {
-      /* 已关闭 */
-    }
-  });
+    workbench.close();
+  }
+  server.once('close', dispose);
 
-  return { server, workbench, updater, location };
+  return { server, workbench, updater, location, dispose };
 }
 
 // ------------------------------------------------------------------ API
@@ -201,7 +241,20 @@ async function publicBuild(dir) {
   return buildCache.value;
 }
 
-async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { storage, live, pickFolder, restart, updateClients, obsidian }) {
+function requestedZone(url, fallback) {
+  const zone = url.searchParams.get('tz');
+  if (zone === null) return fallback;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: zone });
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    throw new WorkbenchError('invalid', 'tz 必须是有效的时区');
+  }
+  return zone;
+}
+
+async function handleApi(wb, req, res, url, publicDir, ai, island, updater,
+  { storage, live, pickFolder, restart, updateClients, obsidian, relocate, canSettle }) {
   const route = `${req.method} ${url.pathname}`;
   try {
     if (req.method === 'POST' && STORAGE_POSTS.has(url.pathname)
@@ -209,7 +262,7 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
       sendJson(res, 415, { code: 'unsupported-media-type' });
       return;
     }
-    const body = req.method === 'POST' ? await readJson(req) : null;
+    const body = req.method === 'POST' ? await readJson(req, url.pathname === '/api/import' ? IMPORT_LIMIT : BODY_LIMIT) : null;
     // 模型接入（CC Switch 式的供应商管理）与 AI 回顾：见 app/lib/ai-routes.js
     if (url.pathname.startsWith('/api/ai/')) {
       const payload = await handleAiRoute(route, { wb, body, url, ai });
@@ -244,7 +297,7 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
         else sendJson(res, 200, await pickFolder());
         return;
       case 'POST /api/storage/relocate':
-        sendJson(res, 200, storage.relocate(body?.dataDir, body?.mode));
+        sendJson(res, 200, await relocate(body?.dataDir, body?.mode));
         return;
       case 'POST /api/restart': {
         if (!restart) {
@@ -297,8 +350,8 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
       }
       case 'GET /api/view': {
         const day = url.searchParams.get('day') || localDateOf(nowSeconds(), wb.timeZone);
-        const tz = url.searchParams.get('tz') || wb.timeZone;
-        wb.settleExpired();
+        const tz = requestedZone(url, wb.timeZone);
+        if (canSettle()) wb.settleExpired();
         const view = wb.readDay(day, tz);
         // 当前计划（只在看今天时有）：桌面灵动岛据此显示任务、开始时长；没有指定 prefer 时推荐也跟它走
         const now = wb.now();
@@ -316,7 +369,7 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
       }
       case 'GET /api/month': {
         const month = url.searchParams.get('month') || localDateOf(nowSeconds(), wb.timeZone).slice(0, 7);
-        const tz = url.searchParams.get('tz') || wb.timeZone;
+        const tz = requestedZone(url, wb.timeZone);
         sendJson(res, 200, { ok: true, days: wb.readMonth(month, tz) });
         return;
       }
@@ -347,24 +400,27 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
       case 'POST /api/import': {
         // 只允许导入到空库，避免覆盖已有数据。
         const payload = body;
-        if (!payload || payload.format !== 'learning-space-workbench') {
+        if (!payload || payload.format !== 'learning-space-workbench' || payload.version !== 1) {
           throw new WorkbenchError('invalid', '不是本工作台的导出文件');
         }
-        const existing = BACKUP_TABLES.reduce(
-          (sum, t) => sum + Number(wb.db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n), 0,
-        );
-        if (existing > 0) {
-          throw new WorkbenchError('conflict', '当前库里已有数据，导入只支持空库');
+        if (!payload.tables || typeof payload.tables !== 'object' || Array.isArray(payload.tables)
+          || !Object.values(payload.tables).every(Array.isArray)) {
+          throw new WorkbenchError('invalid', '备份 tables 必须是对象，每张表必须是数组');
         }
         let inserted = 0;
         wb.db.exec('BEGIN IMMEDIATE');
         try {
+          if (BACKUP_TABLES.some(t => wb.db.prepare(`SELECT 1 FROM ${t} LIMIT 1`).get())) {
+            throw new WorkbenchError('conflict', '当前库里已有数据，导入只支持空库');
+          }
           for (const table of BACKUP_TABLES) {
-            const rows = payload.tables?.[table];
-            if (!Array.isArray(rows) || !rows.length) continue;
+            const rows = payload.tables[table];
+            if (!rows?.length) continue;
+            const fields = new Set(wb.db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name));
             for (const row of rows) {
+              if (!row || typeof row !== 'object' || Array.isArray(row)) throw new WorkbenchError('invalid', `${table} 行格式错误`);
               const cols = Object.keys(row);
-              if (!cols.length) continue;
+              if (!cols.length || cols.some(c => !fields.has(c))) throw new WorkbenchError('invalid', `${table} 字段错误`);
               const sql = `INSERT INTO ${table} (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`;
               wb.db.prepare(sql).run(...cols.map((c) => row[c]));
               inserted += 1;
@@ -402,7 +458,7 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
       }
       case 'GET /api/insights': {
         const days = Number(url.searchParams.get('days') || 14);
-        const tz = url.searchParams.get('tz') || wb.timeZone;
+        const tz = requestedZone(url, wb.timeZone);
         const endDay = url.searchParams.get('day') || null;
         const insights = wb.readInsights(days, tz, endDay);
         sendJson(res, 200, { ok: true, insights });
@@ -432,7 +488,7 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
           else if (action === 'later' || action === 'skip') await updater.setReminder(action, body.version);
           else throw new WorkbenchError('invalid', `未知更新操作：${action}`);
         } catch (err) {
-          if (err instanceof UpdateError) throw new WorkbenchError('conflict', err.message);
+          if (err instanceof UpdateError) throw new WorkbenchError(err.code === 'invalid' ? 'invalid' : 'conflict', err.message);
           throw err;
         }
         sendJson(res, 200, { ok: true, update: updater.status(), result });
@@ -453,7 +509,7 @@ async function handleApi(wb, req, res, url, publicDir, ai, island, updater, { st
       return;
     }
     if (err instanceof WorkbenchError) {
-      const status = err.reason === 'missing' ? 404 : err.reason === 'conflict' ? 409 : err.reason === 'invalid' ? 400 : 500;
+      const status = { missing: 404, conflict: 409, 'restart-required': 409, invalid: 400, 'import-too-large': 413 }[err.reason] ?? 500;
       sendJson(res, status, { ok: false, reason: err.reason, message: err.message });
       return;
     }
@@ -471,6 +527,7 @@ export function execute(wb, command) {
         title: command.title,
         course: command.course ?? '',
         estimatedSeconds: command.estimatedSeconds ?? null,
+        projectId: command.projectId ?? null,
       });
     case 'updateTask':
       return wb.updateTask({
@@ -548,20 +605,24 @@ export function execute(wb, command) {
   }
 }
 
-function readJson(req) {
+function readJson(req, limit) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
-    req.on('data', (chunk) => {
+    function onData(chunk) {
       size += chunk.length;
-      if (size > BODY_LIMIT) {
-        reject(new WorkbenchError('invalid', '请求体过大'));
-        req.destroy();
+      if (size > limit) {
+        chunks.length = 0;
+        req.off('data', onData);
+        req.off('end', onEnd);
+        req.resume();
+        reject(limit === IMPORT_LIMIT ? new WorkbenchError('import-too-large', '备份文件超过 64 MiB 导入上限')
+          : new WorkbenchError('invalid', '请求体过大'));
         return;
       }
       chunks.push(chunk);
-    });
-    req.on('end', () => {
+    }
+    function onEnd() {
       const text = Buffer.concat(chunks).toString('utf8');
       if (!text) {
         resolve(null);
@@ -572,7 +633,9 @@ function readJson(req) {
       } catch {
         reject(new WorkbenchError('invalid', '请求体不是合法 JSON'));
       }
-    });
+    }
+    req.on('data', onData);
+    req.once('end', onEnd);
     req.on('error', reject);
   });
 }
@@ -627,10 +690,18 @@ async function serveStatic(req, res, pathname, publicDir, projectDir) {
 export async function start({ port = 0, host = '127.0.0.1', ...options } = {}) {
   const app = createWorkbenchServer(options);
   const { server } = app;
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(port, host, resolve);
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(port, host, () => {
+        server.off('error', reject);
+        resolve();
+      });
+    });
+  } catch (error) {
+    app.dispose();
+    throw error;
+  }
   const address = server.address();
   const url = `http://${host}:${address.port}/`;
   return { ...app, url, port: address.port };

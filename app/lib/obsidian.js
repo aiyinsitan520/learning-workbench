@@ -168,10 +168,10 @@ function snapshot(wb) {
   wb.db.exec('BEGIN');
   try {
     return {
-      notes: read('SELECT t.*, n.body FROM task_notes n JOIN tasks t ON n.task_id = t.id ORDER BY t.id'),
-      history: read("SELECT task_id, day, updated_at FROM task_note_days ORDER BY day"),
+      tasks: read('SELECT t.*, n.body FROM tasks t LEFT JOIN task_notes n ON n.task_id = t.id ORDER BY t.id'),
+      history: read("SELECT task_id, day, updated_at FROM task_note_days ORDER BY day, task_id"),
       projects: read('SELECT * FROM projects ORDER BY id'),
-      logs: read('SELECT * FROM project_logs ORDER BY day'),
+      logs: read('SELECT * FROM project_logs ORDER BY day, project_id'),
       harvests: read('SELECT * FROM harvests ORDER BY id'),
       blocks: read('SELECT b.*, t.title, t.project_id FROM schedule_blocks b JOIN tasks t ON b.task_id = t.id ORDER BY starts_at, b.id'),
       focus: read('SELECT f.*, t.title, t.project_id FROM focus_sessions f LEFT JOIN tasks t ON f.task_id = t.id ORDER BY started_at, f.id'),
@@ -183,8 +183,8 @@ function snapshot(wb) {
   }
 }
 
-function buildDocuments(wb, config, dataDir, entries) {
-  const data = snapshot(wb);
+function buildDocuments(wb, config, dataDir, entries, data) {
+  const notes = data.tasks.filter(row => row.body !== null);
   const docs = new Map();
   const paths = new Set();
   const dateOf = seconds => localDateOf(seconds, wb.timeZone);
@@ -239,7 +239,7 @@ function buildDocuments(wb, config, dataDir, entries) {
 
   const history = new Map();
   for (const item of data.history) history.set(item.task_id, item);
-  if (config.include.notes) for (const row of data.notes) {
+  if (config.include.notes) for (const row of notes) {
     const last = history.get(row.id);
     const day = last?.day === '1970-01-01' || !last ? dateOf(row.created_at) : last.day;
     const stem = filename(row.title, 70) + '-' + filename(row.id.slice(0, 6), 6);
@@ -279,7 +279,7 @@ function buildDocuments(wb, config, dataDir, entries) {
   });
   for (const row of data.reviews) appendDay(row.day, '当天回顾', () => textWithImages(row.text));
   for (const row of data.history) if (row.day !== '1970-01-01') connect(dayDoc(row.day), 'notes', row.task_id);
-  for (const row of data.notes) connect(docs.get('notes:' + row.id), 'projects', row.project_id);
+  for (const row of notes) connect(docs.get('notes:' + row.id), 'projects', row.project_id);
   for (const row of data.harvests) {
     const doc = docs.get('harvests:' + row.id);
     connect(dayDoc(row.day), 'harvests', row.id);
@@ -333,11 +333,11 @@ function owns(row, contents) {
   return contents.subarray(0, Buffer.byteLength(header)).toString() === header;
 }
 
-function exportFiles(output, wb, config, dataDir, status, check) {
+function exportFiles(output, wb, config, dataDir, status, check, data) {
   const manifest = join(output, '.workbench-export.json');
   let saved = file(manifest);
   const entries = manifestEntries(saved);
-  const docs = buildDocuments(wb, config, dataDir, entries);
+  const docs = buildDocuments(wb, config, dataDir, entries, data);
   const wanted = new Set([...docs.values()].map(doc => key(doc.path)));
   const blocked = new Set();
   const deleted = [];
@@ -413,49 +413,71 @@ export function createObsidian({ wb, dataDir, revision, debounceMs = 60_000, pol
   }
   const config = () => settings(read(configPath) ?? {});
   let timer;
-  let observed = revision();
+  let observed;
+  let observedConfig;
+  // 进程内 revision 会在重启时归零。只为启动核对和实际导出计算持久指纹。
+  const fingerprint = (cfg, data) => hash(JSON.stringify([wb.timeZone, cfg, data]));
+  function publicStatus() {
+    const { fingerprint: saved, ...status } = read(statusPath) ?? initialStatus();
+    return status;
+  }
   function run(automatic = false) {
     const cfg = config();
+    if (automatic && (!cfg.enabled || !cfg.auto)) return;
     if (!cfg.enabled || !cfg.vaultPath) throw invalid('请先保存并启用 Obsidian 导出。');
-    if (automatic && !cfg.auto) return;
     const status = { ...initialStatus(), lastExportAt: new Date().toISOString() };
     try {
       const output = validateVault(cfg);
       directory(output, true);
       withLock(output, check => {
-        exportFiles(output, wb, cfg, dataDir, status, check);
-        publish(statusPath, JSON.stringify(status));
+        const data = snapshot(wb);
+        exportFiles(output, wb, cfg, dataDir, status, check, data);
+        const saved = status.conflicts.length ? status : { ...status, fingerprint: fingerprint(cfg, data) };
+        publish(statusPath, JSON.stringify(saved));
       });
     } catch (error) {
       status.error = error.message;
       if (error.reason !== 'conflict') publish(statusPath, JSON.stringify(status));
       throw error;
     }
+    if (!status.conflicts.length) clearTimeout(timer);
     return { config: cfg, status };
+  }
+  function schedule() {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      try {
+        if (run(true)?.status.conflicts.length) schedule();
+      } catch { schedule(); }
+    }, debounceMs).unref();
   }
   const poll = setInterval(() => {
     try {
       const cfg = config();
       if (!cfg.enabled || !cfg.auto) {
         clearTimeout(timer);
+        observedConfig = undefined;
         return;
       }
       const latest = revision();
-      if (latest === observed) return;
+      const configKey = JSON.stringify(cfg);
+      if (observedConfig === configKey && latest === observed) return;
+      const saved = observedConfig !== configKey && read(statusPath)?.fingerprint;
+      const current = saved && saved === fingerprint(cfg, snapshot(wb));
+      observedConfig = configKey;
       observed = latest;
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        try { run(true); } catch { /* 状态已记录；下次变更再试。 */ }
-      }, debounceMs).unref();
+      if (!current) schedule();
+      else clearTimeout(timer);
     } catch { /* 本地配置或数据库暂时不可用，下次轮询再试。 */ }
   }, pollMs).unref();
   return {
-    get: () => ({ config: config(), status: read(statusPath) ?? initialStatus() }),
+    get: () => ({ config: config(), status: publicStatus() }),
     configure(value) {
       if (!configPath) throw invalid('此服务没有数据文件夹。');
       const cfg = settings(value);
       if (cfg.vaultPath) validateVault(cfg);
       publish(configPath, JSON.stringify(cfg, null, 2) + '\n');
+      observedConfig = undefined;
       if (!cfg.enabled || !cfg.auto) clearTimeout(timer);
       return this.get();
     },

@@ -126,7 +126,7 @@ export type Command =
   | { type: "promoteHarvestTodo"; harvestId: string; index: number; taskId: string; course?: "" | "日计划" };
 export type CommandResult =
   | { ok: true }
-  | { ok: false; reason: "invalid" | "missing" | "conflict" | "storage" };
+  | { ok: false; reason: "invalid" | "missing" | "conflict" | "storage" | "restart-required" };
 export interface Workbench {
   readDay(day: StudyDay, timeZone: string): Promise<WorkbenchView>;
   readTaskNote(taskId: string): Promise<TaskNote>;

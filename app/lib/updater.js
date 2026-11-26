@@ -421,7 +421,8 @@ export function createUpdater({
     },
 
     async setAutoCheck(value) {
-      state.autoCheck = Boolean(value);
+      if (typeof value !== 'boolean') throw new UpdateError('invalid', 'autoCheck 必须为布尔值');
+      state.autoCheck = value;
       if (settingsPath) {
         await mkdir(dataDir, { recursive: true });
         await writeFile(settingsPath, JSON.stringify({ autoCheck: state.autoCheck }));
